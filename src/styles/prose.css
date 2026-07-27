@@ -60,6 +60,41 @@
     border-block-end: 1px solid var(--color-border-subtle);
   }
 
+  /* --- 標題錨點 -----------------------------------------------------------
+     由 rehype-autolink-headings 產生（設定見 astro.config.mjs）。
+
+     平時隱形、hover 或鍵盤聚焦時才顯現 —— 錨點是給想要連結的人用的工具，
+     不是內容的一部分，常駐顯示會干擾閱讀節奏。
+
+     用 opacity 而非 display/visibility 切換：後兩者會讓元素退出無障礙樹或
+     無法聚焦，鍵盤使用者就永遠拿不到這個連結。 */
+
+  .prose :is(h1, h2, h3, h4, h5, h6) .heading-anchor {
+    /* 與標題文字之間留一個字的距離，且不隨標題字級縮放太多 */
+    margin-inline-start: 0.4em;
+    color: var(--color-text-subtle);
+    text-decoration: none;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+  }
+
+  .prose :is(h1, h2, h3, h4, h5, h6):hover .heading-anchor,
+  .prose .heading-anchor:focus-visible {
+    opacity: 1;
+  }
+
+  .prose .heading-anchor:hover {
+    color: var(--color-link);
+  }
+
+  /* 觸控裝置沒有 hover，錨點會永遠不出現。與其做一個永遠碰不到的功能，
+     不如在這類裝置上直接常駐顯示（淡色，不搶視覺）。 */
+  @media (hover: none) {
+    .prose :is(h1, h2, h3, h4, h5, h6) .heading-anchor {
+      opacity: 0.4;
+    }
+  }
+
   /* --- 清單 --------------------------------------------------------------- */
 
   .prose :is(ul, ol) {
@@ -111,12 +146,39 @@
     background-color: var(--color-bg-subtle);
   }
 
+  /* --- 站外連結 -----------------------------------------------------------
+     data-external 由 src/plugins/rehype-external-links.mjs 標記。
+     不開新分頁的理由記在該檔案，這裡只負責讓讀者「點之前就知道會離站」。
+
+     兩行 content 是刻意的：第二行用 CSS 的替代文字語法（content / alt），
+     讓螢幕閱讀器讀到「站外連結」而不是無意義的箭頭符號。不支援該語法的
+     瀏覽器會丟棄第二行、保留第一行 —— 標記不會整個消失。 */
+
+  .prose a[data-external]::after {
+    content: "↗";
+    content: "↗" / "（站外連結）";
+    margin-inline-start: 0.15em;
+    font-size: 0.85em;
+    /* 箭頭不該被連結底線劃過 */
+    text-decoration: none;
+    vertical-align: 0.1em;
+    color: var(--color-text-subtle);
+  }
+
   /* --- 表格 ---------------------------------------------------------------
      寬表格需橫向捲動，但捲動容器不能是 <table> 本身（會破壞欄寬計算）。
-     Phase 3 由 rehype 外掛自動包上 .table-wrapper。 */
+     .table-wrapper 由 src/plugins/rehype-table-wrapper.mjs 自動包上。 */
 
   .prose .table-wrapper {
     overflow-x: auto;
+  }
+
+  /* 這個容器是鍵盤焦點停留點（見 rehype-table-wrapper.mjs），
+     聚焦時必須看得出來落在哪裡。 */
+  .prose .table-wrapper:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+    border-radius: var(--radius-2);
   }
 
   .prose table {

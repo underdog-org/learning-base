@@ -40,6 +40,50 @@
     }
   }
 
+  /* --- 閱讀進度條 ---------------------------------------------------------
+     CSS 捲動驅動動畫（scroll-driven animations）：動畫的「時間軸」不是時間，
+     而是捲動位置。因此不需要 scroll listener、不需要 requestAnimationFrame、
+     不需要任何 JavaScript，且動畫跑在合成器執行緒上，不會被主執行緒卡住。
+
+     為什麼用 scroll() 而非 view-timeline(<article>)：
+       view-timeline 能精準量測文章本身的閱讀進度，但它需要在共同祖先上加
+       timeline-scope 才能被 DOM 順序在前的 header 引用，且短文章會落進
+       「subject 小於 scrollport」的邊界情況而行為怪異。
+       文檔頁的文章佔了頁面絕大部分，scroll(root block) 的誤差只有 header
+       與 PrevNext 的高度，不值得為此換來上述兩個複雜度。
+
+     不支援的瀏覽器（目前 Firefox）整條隱藏 —— 一條永遠停在 0% 的死線
+     比沒有進度條更糟。 */
+
+  .reading-progress {
+    display: none;
+  }
+
+  @supports (animation-timeline: scroll(root block)) {
+    .reading-progress {
+      display: block;
+      position: absolute;
+      /* -1px 讓進度條蓋住 header 的下緣邊框，而不是疊在它上面多一條線 */
+      inset-block-end: -1px;
+      inset-inline: 0;
+      block-size: 2px;
+      /* 主題色。data-topic 已由 topics.css 覆寫 --accent-*，
+         因此這個 token 會自動跟著當前主題換色，元件不需要知道顏色。 */
+      background: var(--color-accent-solid);
+      /* scaleX 只觸發合成，不觸發 layout 或 paint —— 比動 inline-size 便宜 */
+      transform: scaleX(0);
+      transform-origin: 0 50%;
+      animation: reading-progress linear both;
+      animation-timeline: scroll(root block);
+    }
+  }
+
+  @keyframes reading-progress {
+    to {
+      transform: scaleX(1);
+    }
+  }
+
   /* ==========================================================================
      三欄骨架
      ==========================================================================

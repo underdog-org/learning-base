@@ -58,6 +58,10 @@ const topics = sortedTopics();
       </ul>
     </nav>
   </div>
+
+  {/* 閱讀進度條。純 CSS 捲動驅動動畫，零 JavaScript —— 見 doc-layout.css。
+      對螢幕閱讀器無意義（進度資訊已由捲動本身傳達），故 aria-hidden。 */}
+  <div class="reading-progress" aria-hidden="true"></div>
 </header>
 
 <style>

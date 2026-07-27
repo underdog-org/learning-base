@@ -84,6 +84,8 @@ Primitive token 本身就分中西兩軸，語意 token 由 primitive 組合而�
 - 新增元件需自行撰寫 CSS，無 utility class 可用（刻意的取捨，見替代方案）。
 - Token 命名與色階需自行設計，參考 Radix Colors 與 Open Props 的 scale 命名法。
 - `text-spacing-trim` / `text-autospace` 屬較新的 CSS Text Level 4 特性，需確認目標瀏覽器支援度並準備 fallback。
+  → 已於 [ADR 0009](0009-cjk-latin-spacing.md) 結案：`text-autospace` 覆蓋 80.7%（Baseline，2025-11）不需 fallback；
+  `text-spacing-trim` 僅 Chromium 支援，接受降級。
 
 ## 已評估的替代方案
 
@@ -104,3 +106,4 @@ Primitive token 本身就分中西兩軸，語意 token 由 primitive 組合而�
 ## 相關
 
 - [ADR 0004](0004-cjk-font-strategy.md)：`--font-cjk` 的實際來源策略
+- [ADR 0009](0009-cjk-latin-spacing.md)：中英混排空白的支援度調查與最終決策

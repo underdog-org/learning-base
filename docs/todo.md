@@ -8,12 +8,14 @@
 
 ## 現況
 
-**階段一、二完成並通過人工驗證。** 下一步：階段三。
+**階段一、二、三完成並通過人工驗證。** 下一步：階段四效能閘門 —— 此時產物最乾淨（client JS = 0），是設基準線的最佳時機，且必須擋在任何互動元件之前。
 
 - `astro@^7.1.4` + `@astrojs/mdx@^7.0.4`（pnpm workspace）
-- 11 頁靜態產物，**client JS = 0**，CSS 約 13KB
+- Markdown 管線：`remark-cjk-friendly`、`rehype-autolink-headings`、兩個自訂 rehype 外掛
+- 12 頁靜態產物，**client JS = 0**，CSS 約 14KB
 - 樣式：`index / reset / tokens / base / prose / code / doc-layout / topics`
 - 資料層：`utils/nav.ts`、`utils/toc.ts`、`utils/topics.ts`（皆為 build 期純函式）
+- 驗收頁：`/style-guide`（手寫 HTML，排版）、`/style-guide/markdown`（MDX，管線）
 - 四個主題：`typescript`（含二層巢狀）、`gsap`、`ai-ml`、`claude`
 
 ---
@@ -47,6 +49,8 @@
   - [x] `text-autospace: normal`（中英混排）
   - [x] 程式碼區塊反向關閉上述兩者（`space-all` / `no-autospace`）
   - [x] 兩者皆為漸進增強，不支援時靜默忽略，無需 fallback
+        （階段三調查後結論不變，但理由改為「支援度已足夠」—— `text-autospace` 80.7% 已 Baseline，
+        `text-spacing-trim` 僅 Chromium 但無合理修補路徑。見 ADR [0009](adr/0009-cjk-latin-spacing.md)）
   - [x] `line-break: strict`（禁則處理）、`hanging-punctuation: allow-end`
   - [x] 段距 ≥ 行間空隙 × 1.5
   - [x] 只使用真實字重（400 / 700），`font-synthesis-weight: none` 強制執行
@@ -118,21 +122,56 @@
 
 ---
 
-## 階段三：Rehype / Remark
+## 階段三：Rehype / Remark ✅
 
-> ADR [0002](adr/0002-style-system-tokens-cjk.md)
+> ADR [0002](adr/0002-style-system-tokens-cjk.md)、[0009](adr/0009-cjk-latin-spacing.md)
 
-**注意**：Astro 已內建 GFM、smartypants、標題 ID 自動生成（github-slugger）—— 不需 `rehype-slug`。
+**目標**：補齊 Markdown 管線的產出，讓內容層不需要為結構或無障礙負責。
 
-- [ ] 安裝 `rehype-autolink-headings`，設定標題錨點
-- [ ] 表格自動包上 `.table-wrapper`（`prose.css` 已備妥樣式，缺 rehype 外掛產生 wrapper）
-- [ ] 評估中英混排空白方案
-  - [ ] 優先走 CSS `text-autospace`（階段一已做）
-  - [ ] 若支援度不足，改為自訂 remark plugin（build 期插入細空格，跳過 code / 連結節點）
+- [x] 安裝 `rehype-autolink-headings`，設定標題錨點
+  - [x] `behavior: "append"` —— prepend 會讓中文標題的左緣參差（方塊字左緣本是直線）
+  - [x] 錨點的無障礙名稱用 `aria-labelledby` 指向標題自身的 id，不需計算標題文字
+  - [x] **順序陷阱**：Astro 內建的 `rehypeHeadingIds` 預設跑在使用者外掛「之後」，
+        autolink 只處理已有 id 的標題 —— 不明確前置就會靜默失效（build 通過、錨點不存在）。
+        從 `@astrojs/markdown-remark` import 並排在最前面
+  - [x] 平時 `opacity: 0`，hover／`:focus-visible` 才現形；`@media (hover: none)` 常駐淡色
+- [x] `src/plugins/rehype-table-wrapper.mjs` —— 表格自動包上 `.table-wrapper`
+  - [x] 捲動容器不能是 `<table>` 自己：overflow 建立 BFC 會讓自動欄寬演算法失準
+  - [x] `tabindex="0"` + `role="region"` + `aria-label`（WCAG 2.1.1，可捲動區域須能鍵盤操作；
+        只給 tabindex 會產生無名稱的焦點站，比不給更糟）
+- [x] `src/plugins/rehype-external-links.mjs` —— 站外連結標記
+  - [x] 外掛只加 `data-external`，視覺與無障礙文字全交給 CSS
+  - [x] `content: "↗" / "（站外連結）"` —— CSS 替代文字語法，螢幕閱讀器讀到的是語意而非符號；
+        前面併一行純 `content: "↗"`，不支援替代文字語法的瀏覽器仍看得到標記
+  - [x] **不加 `target="_blank"`**：WCAG 3.2.5，開新分頁破壞返回鍵；且靜態站所有裝置拿到
+        同一份 HTML，按裝置分歧只能靠 client JS，違反鐵則。沒有 `_blank` 也就不需要 `rel="noopener"`
+- [x] 捲動進度條（`SiteHeader` + `doc-layout.css`）—— **純 CSS 零 JS**
+  - [x] `animation-timeline: scroll(root block)`，動畫跑在合成器執行緒
+  - [x] 用 `scroll()` 而非 `view-timeline(<article>)`：後者需在共同祖先加 `timeline-scope`
+        才能被 DOM 順序在前的 header 引用，且短文章會落進邊界情況。文檔頁誤差僅 header 與 PrevNext
+  - [x] `scaleX` 而非 `inline-size`，只觸發合成
+  - [x] 色彩吃 `var(--color-accent-solid)`，自動跟隨 `data-topic` 換色，元件不知道任何顏色
+  - [x] `@supports` 不支援則整條隱藏，不留一條停在 0% 的死線
+- [x] 安裝 `remark-cjk-friendly` —— 修正 CommonMark 強調符在中文下的**渲染錯誤**
+      （實測失敗案例與成因見 ADR [0009](adr/0009-cjk-latin-spacing.md)）
+- [x] 建立 `/style-guide/markdown` 驗收頁 —— 內容走 MDX，因此經過與 `/docs/*` 完全相同的管線
+      （手寫 HTML 的 `/style-guide` 驗不到這一層），並複用 `DocLayout` + `article.prose`
 - [x] ~~Shiki 設定~~ —— 已於階段二完成（雙主題 + `defaultColor: false`）
-- [ ] 視需要：閱讀時間、外部連結標記
+- [x] ~~中英混排 remark plugin~~ —— **不做**。`text-autospace` 覆蓋 80.7%（Baseline 2025-11），
+      ROI 不足。調查、業界作法、備用設計與重啟條件見 ADR [0009](adr/0009-cjk-latin-spacing.md)
+- [x] ~~閱讀時間~~ —— **不做**。中文需按字元數而非詞數估算，準確度可疑；捲動進度條提供的是
+      即時且真實的資訊，資訊價值更高
 
-**驗收**：錨點連結可用；中英混排間距正確且不影響程式碼區塊；寬表格可橫向捲動而不撐破版面。
+**驗收**：
+- [x] `pnpm build` 通過，12 頁
+- [x] **client JS = 0**
+- [x] CSS 14.2KB（未壓縮傳輸），`@layer` 順序保留
+- [x] 錨點正確輸出且 id 無重複；TOC 未受 `rehypeHeadingIds` 前置影響
+- [x] `mailto:` / 錨點 / 相對路徑未被誤判為站外
+- [x] 17 個中文強調符案例全部正確渲染（原始 CommonMark 有 3 個失敗）
+- [x] 錨點 hover／Tab 鍵、表格鍵盤捲動、進度條推進與換色
+- [x] Firefox：進度條整條消失而非停在 0%
+- [x] `text-autospace` 中英間距、`text-spacing-trim` 標點擠壓目測確認
 
 ---
 

@@ -25,14 +25,19 @@
 
     /* --- CSS Text Level 4 ---------------------------------------------------
        兩者都是「有支援就生效、沒支援就忽略」的漸進增強，不需要 fallback。
+       支援度調查與決策見 docs/adr/0009-cjk-latin-spacing.md（2026-07）。
 
        text-spacing-trim: 擠壓相鄰全形標點之間的多餘空白。
          例：「（註）、「引號」」在未處理時標點間會出現視覺空洞。
-         這一條對中文排版的視覺改善幅度最大。
+         這一條對中文排版的視覺改善幅度最大，但目前僅 Chromium 支援（69.9%），
+         Safari／Firefox 缺此效果 —— 無合理的 build 期修補路徑，接受降級。
 
        text-autospace: 在中文與拉丁文／數字交界自動插入約 1/4 字寬的間隙。
-         取代 build 期跑 pangu.js 插入 U+200A 的做法 —— 不污染 DOM，
-         不影響複製貼上的結果，也不會誤傷程式碼與連結。 */
+         覆蓋 80.7%，2025-11 起為 Baseline（Chrome 120／Safari 18.4／Firefox 145）。
+         取代 build 期跑 pangu.js 插入空格的做法 —— 不污染 DOM，
+         不影響複製貼上與 Ctrl+F，也不會誤傷程式碼與連結。
+         注意：若日後補 fallback，絕不可插入真的空格字元，會與本宣告疊加成兩倍間距
+         且無法用 CSS 收回。正確作法（空 span + @supports）記於 ADR 0009。 */
     text-spacing-trim: space-first;
     text-autospace: normal;
   }
