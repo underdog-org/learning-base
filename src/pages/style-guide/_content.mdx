@@ -1,0 +1,89 @@
+這一頁的內容全部由 MDX 產生，因此經過與 `/docs/*` 完全相同的 remark／rehype
+管線。用手寫 HTML 的 `/style-guide` 驗不到這一層 —— 那裡的標記是人寫的，
+這裡的標記是外掛產生的。
+
+## 標題錨點
+
+滑鼠移到標題上，右側會浮出一個 `#`。它平時隱形，因為錨點是工具而不是內容。
+用 Tab 鍵也能走到它（`:focus-visible` 同樣會讓它現形），觸控裝置則因為沒有
+hover 而常駐淡色顯示。
+
+### 三層標題也要有
+
+錨點對 h2 到 h6 一視同仁。這一節同時驗證巢狀標題在 TOC 中的縮排。
+
+#### 四層標題
+
+id 由 Astro 內建的 github-slugger 從標題文字生成，中文標題會直接成為 id ——
+`#四層標題` 是合法且可用的錨點。
+
+## 站外連結
+
+站內連結長這樣：[回到 Style Guide](/style-guide)、[TypeScript 主題](/docs/typescript)。
+沒有任何額外標記，因為讀者不會離開這個站。
+
+站外連結會自動帶上箭頭：[MDN 的 text-autospace 說明](https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Properties/text-autospace)、
+[W3C 中文排版需求](https://www.w3.org/TR/clreq/)、[caniuse](https://caniuse.com/)。
+箭頭是 CSS 的 `::after`，不是文字節點 —— 複製整段話不會把箭頭一起帶走。
+螢幕閱讀器讀到的是「站外連結」而不是「箭頭符號」。
+
+三種不該被誤判為站外的情況：[錨點](#站外連結)、[信箱](mailto:hi@example.com)、
+[相對路徑](../style-guide)。
+
+## 寬表格
+
+超過內文寬度的表格會被包進捲動容器，而不是撐破版面。這個容器是鍵盤焦點
+停留點——用 Tab 走到表格上，會看到聚焦外框，此時方向鍵可以橫向捲動。
+
+| 屬性 | Chrome / Edge | Safari | iOS Safari | Firefox | 全球覆蓋 | 本站是否依賴 |
+|---|---|---|---|---|---|---|
+| `text-autospace` | 120（`normal` 值 140） | 18.4 | 18.4 | 145 | 80.7% | 是，中英混排唯一方案 |
+| `text-spacing-trim` | 123 | 未支援 | 未支援 | 未支援 | 69.9% | 是，但接受降級 |
+| `animation-timeline` | 115 | 26 | 26 | 未支援 | — | 是，進度條，不支援則隱藏 |
+| `content` 替代文字語法 | 77 | 17.4 | 17.4 | 133 | — | 是，站外連結的無障礙文字 |
+| `light-dark()` | 123 | 17.5 | 17.5 | 120 | — | 是，整套色彩體系的基礎 |
+
+## 程式碼不受任何外掛影響
+
+行內的 `const useTypeScript = true` 與下方的程式碼區塊都不會被插入中英間距，
+`base.css` 對 `code, kbd, samp, pre` 反向關閉了 `text-autospace`。
+
+```ts
+// 中文註解與 English comment 混排，字面值不得被任何外掛改動
+const 設定 = { measure: "40em", leading: 1.8 } as const;
+type Axis = keyof typeof 設定;
+```
+
+## 中英混排與標點
+
+這一段是 CSS `text-autospace` 的目測標的：使用 TypeScript 開發時，
+generics 與 conditional types 是兩個最常被誤解的特性，而 GSAP 的 timeline
+模型則需要理解 3 個核心概念。在 Chrome、Safari 與 Firefox 145 以上會看到
+中英交界的細微間隙；Firefox 144 以下則沒有，這是已知且接受的降級
+（見 ADR 0009）。
+
+> 標點擠壓（`text-spacing-trim`）目前只有 Chromium 支援。
+> 對照「（註）」、「引號」這類相鄰全形標點，在 Safari 與 Firefox 上
+> 會看到較寬的視覺空洞。
+
+## 中文強調符
+
+以下每一行的星號都**必須**變成粗體。若看到裸露的 `**`，表示
+`remark-cjk-friendly` 沒有生效 —— CommonMark 原始規則會讓夾在中文之間、
+且內容以全形標點開頭或結尾的強調符判定失敗。
+
+- 這是**「引號開頭的粗體」**內容
+- 這是**（括號）**內容
+- 這是**粗體。**含句號
+- 「粗體」**「緊接引號」**「後方」
+- 中文**中英 mixed 粗體**中文
+- 一**二**三**四**五
+- 數字123**粗體**456
+
+**已知未修正**：`__底線粗體__` 夾在中文之間仍然無效（`_` 的 intraword 限制是
+另一條規則）。本專案一律使用 `**`，不受影響。
+
+## 閱讀進度條
+
+捲動這一頁，導航列底部會有一條主題色的細線推進。它是純 CSS 的捲動驅動動畫，
+整站 client JS 仍然是 0。這一段之後刻意留白，讓進度條有足夠的行程可以觀察。

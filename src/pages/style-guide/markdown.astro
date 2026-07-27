@@ -1,0 +1,43 @@
+---
+/**
+ * Markdown 管線驗收頁 —— Phase 3 的驗收標的。
+ *
+ * 為什麼不直接寫成 .mdx 頁面：
+ *   .mdx 的 layout frontmatter 只能把內容塞進 slot，拿不到 .prose 的包裹，
+ *   驗到的排版就不是文章頁真正的樣子。這裡刻意複用與 /docs/* 完全相同的
+ *   DocLayout + article.prose 組合，確保這頁看到的即是文章頁看到的。
+ *
+ * 內容在 _content.mdx —— 底線開頭，不會自己變成一條路由。
+ */
+import DocLayout from "../../layouts/DocLayout.astro";
+import Content from "./_content.mdx";
+---
+
+<DocLayout
+  title="Markdown 管線 — Style Guide"
+  description="Phase 3 驗收：標題錨點、站外連結標記、寬表格捲動、閱讀進度條"
+  topic="typescript"
+>
+  <article class="prose">
+    <h1>Markdown 管線</h1>
+    <p class="lede">
+      Phase 3 驗收頁。驗證 rehype 外掛的產出：標題錨點、站外連結標記、
+      寬表格捲動容器，以及純 CSS 的閱讀進度條。
+    </p>
+    <Content />
+  </article>
+</DocLayout>
+
+<style>
+  @layer components {
+    .lede {
+      font-size: var(--text-lg);
+      color: var(--color-text-muted);
+      text-wrap: pretty;
+    }
+
+    .prose > h1 + .lede {
+      margin-block-start: var(--space-3);
+    }
+  }
+</style>

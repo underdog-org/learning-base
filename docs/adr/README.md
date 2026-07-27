@@ -23,6 +23,7 @@
 | [0006](0006-editor-codemirror.md) | Editor 採用 CodeMirror 6，延後 Monaco | 已接受 |
 | [0007](0007-search-pagefind.md) | 搜尋採用 Pagefind | **待決定** |
 | [0008](0008-performance-budget-gate.md) | 建立效能預算閘門 | 已接受 |
+| [0009](0009-cjk-latin-spacing.md) | 中英混排空白交由 CSS，暫緩自訂外掛 | 已接受 |
 
 ## 貫穿全域的鐵則
 
