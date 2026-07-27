@@ -1,0 +1,89 @@
+---
+title: 結構型別
+description: 為什麼兩個毫不相干的 interface 可以互相賦值。
+order: 1
+---
+
+TypeScript 判斷兩個型別是否相容，看的是**結構**，不是**名稱**。
+這一點與 Java、C# 的名義型別（nominal typing）相反，
+也是許多從那些語言過來的人第一個踩到的坑。
+
+## 名稱不重要
+
+```ts
+interface Point2D {
+  x: number;
+  y: number;
+}
+
+interface Vector2D {
+  x: number;
+  y: number;
+}
+
+const v: Vector2D = { x: 1, y: 2 };
+const p: Point2D = v; // 合法
+```
+
+`Point2D` 與 `Vector2D` 沒有任何繼承關係，名稱也不同，
+但因為結構完全一致，TypeScript 認為它們相容。
+
+這個設計不是疏漏，而是刻意的。TypeScript 要描述的是既有的 JavaScript 生態，
+而 JavaScript 從來就不靠名稱識別物件。
+
+## 帶來的兩個實際後果
+
+### 一、多出來的屬性通常是允許的
+
+```ts
+function distance(p: Point2D): number {
+  return Math.sqrt(p.x ** 2 + p.y ** 2);
+}
+
+const point3d = { x: 1, y: 2, z: 3 };
+distance(point3d); // 合法
+```
+
+只要包含所需的結構就通過。這在多數情況下正是你要的行為——
+函式只關心它用得到的部分。
+
+例外是「物件字面量」直接傳入時，會觸發額外屬性檢查（excess property check）：
+
+```ts
+distance({ x: 1, y: 2, z: 3 });
+//                    ~~~~ 錯誤：物件字面量只能指定已知屬性
+```
+
+這個例外存在的理由是拼字錯誤。直接寫出的字面量若有多餘屬性，
+幾乎總是打錯字，而非刻意為之。
+
+### 二、需要名義型別時要自己造
+
+有些時候你確實需要「名稱有意義」。例如 `UserId` 與 `OrderId` 都是 `string`，
+但混用是嚴重的 bug。結構型別不會幫你擋。
+
+常見做法是加上一個不存在於執行期的標記：
+
+```ts
+declare const brand: unique symbol;
+
+type Brand<T, B> = T & { readonly [brand]: B };
+
+type UserId = Brand<string, "UserId">;
+type OrderId = Brand<string, "OrderId">;
+
+function getUser(id: UserId) {}
+
+const orderId = "ord_123" as OrderId;
+getUser(orderId); // 錯誤，正如預期
+```
+
+代價是建立這種值時需要一次 `as`。這是刻意的摩擦——
+把「這個字串確實是 UserId」的責任集中在少數幾個入口，而不是散落各處。
+
+## 該記住的
+
+結構型別讓 TypeScript 能無痛描述既有的 JavaScript 程式碼，
+代價是它預設不區分語意相同但用途不同的型別。
+
+兩者都是工具。預設用結構型別，只在「混用會造成實際損害」時才付出 branding 的成本。
