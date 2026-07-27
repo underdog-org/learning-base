@@ -1,0 +1,546 @@
+---
+/**
+ * 排版驗收頁 —— Phase 1 的驗收標的。
+ *
+ * 用途：目測驗證 token 體系與 CJK 排版規則在真實內容上的效果。
+ * 這是設計系統的展示，不是文檔站的一部分。
+ */
+import BaseLayout from "../layouts/BaseLayout.astro";
+
+const grayScale = Array.from({ length: 12 }, (_, i) => `--gray-${i + 1}`);
+const accentScale = Array.from({ length: 12 }, (_, i) => `--accent-${i + 1}`);
+
+const textScale = [
+  ["--text-2xs", "0.75rem"],
+  ["--text-xs", "0.8125rem"],
+  ["--text-sm", "0.875rem"],
+  ["--text-md", "1rem"],
+  ["--text-lg", "1.125rem"],
+  ["--text-xl", "1.25rem"],
+  ["--text-2xl", "1.5rem"],
+  ["--text-3xl", "1.875rem"],
+  ["--text-4xl", "2.25rem"],
+];
+
+const spaceScale = [1, 2, 3, 4, 5, 6, 7, 8];
+
+const dualAxis = [
+  ["內文字級", "--text-body-latin", "1rem", "--text-body-cjk", "1.0625rem"],
+  ["行高", "--leading-latin", "1.6", "--leading-cjk", "1.8"],
+  ["標題行高", "--leading-heading-latin", "1.25", "--leading-heading-cjk", "1.4"],
+  ["字距", "--tracking-latin", "0", "--tracking-cjk", "0.02em"],
+  ["內文寬度", "--measure-latin", "65ch", "--measure-cjk", "40em"],
+  ["段落間距", "--paragraph-gap-latin", "1.15em", "--paragraph-gap-cjk", "1.4em"],
+];
+
+// 在 frontmatter 定義，避免 Astro 模板把 { } 當作表達式
+const cssSample = `:root:lang(zh), [lang^="zh"] {
+  --leading-body: var(--leading-cjk);
+  --measure-body: var(--measure-cjk);
+}`;
+
+const tsSample = `interface Token<T extends string> {
+  name: T;
+  value: string;          // 語意層只消費 semantic token
+  fallback?: string;
+}`;
+---
+
+<BaseLayout
+  title="Style Guide — learning-base"
+  description="Phase 1 排版驗收：token 體系與 CJK 排版規則"
+>
+  <div class="page">
+    <header class="page-header">
+      <h1>Style Guide</h1>
+      <p class="lede">
+        Phase 1 驗收頁。驗證中西雙軸 token、<code>:lang()</code> 隔離，以及
+        CJK 排版規則在真實內容上的表現。
+      </p>
+    </header>
+
+    <!-- ================================================================== -->
+    <section class="section">
+      <h2 class="section-title">1. 語言隔離對照</h2>
+      <p class="note">
+        左右兩欄是<strong>完全相同的 CSS</strong>，唯一差別是容器的
+        <code>lang</code> 屬性。行高、字距、內文寬度、段距皆由 token 層自動切換，
+        元件本身沒有任何語言判斷。
+      </p>
+
+      <div class="compare">
+        <div class="compare-col" lang="zh-Hant">
+          <div class="compare-tag">lang="zh-Hant"</div>
+          <div class="prose">
+            <p>
+              設計系統的價值不在於元件數量，而在於決策的一致性。當一個團隊反覆
+              爭論按鈕的圓角該是四像素還是六像素時，真正缺少的並不是規範文件，
+              而是一組能夠回答「為什麼」的原則。
+            </p>
+            <p>
+              Token 的作用正是把這些原則固化下來。它讓「這裡用什麼顏色」變成
+              「這裡是什麼語意」，把視覺決策從實作現場移回設計現場。
+            </p>
+          </div>
+        </div>
+
+        <div class="compare-col" lang="en">
+          <div class="compare-tag">lang="en"</div>
+          <div class="prose">
+            <p>
+              The value of a design system lies not in the number of components
+              it ships, but in the consistency of the decisions behind them. When
+              a team argues repeatedly over whether a button radius should be four
+              pixels or six, what is missing is rarely documentation.
+            </p>
+            <p>
+              Tokens exist to make those principles durable. They turn "what color
+              goes here" into "what does this mean", moving visual decisions back
+              to where they belong.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div class="table-wrapper">
+        <table class="axis-table">
+          <thead>
+            <tr>
+              <th>項目</th>
+              <th>拉丁軸</th>
+              <th>值</th>
+              <th>中文軸</th>
+              <th>值</th>
+            </tr>
+          </thead>
+          <tbody>
+            {
+              dualAxis.map(([label, lToken, lValue, cToken, cValue]) => (
+                <tr>
+                  <td>{label}</td>
+                  <td><code>{lToken}</code></td>
+                  <td class="num">{lValue}</td>
+                  <td><code>{cToken}</code></td>
+                  <td class="num">{cValue}</td>
+                </tr>
+              ))
+            }
+          </tbody>
+        </table>
+      </div>
+
+      <pre><code>{cssSample}</code></pre>
+    </section>
+
+    <!-- ================================================================== -->
+    <section class="section">
+      <h2 class="section-title">2. 中文長文</h2>
+      <p class="note">
+        檢查重點：行高是否足夠、每行字數是否落在 38–42 字、段距是否明顯大於行距。
+      </p>
+
+      <article class="prose">
+        <h1>為什麼中文網頁排版特別難看</h1>
+
+        <p>
+          幾乎每一個用過 Docusaurus 或 VitePress 寫中文文檔的人，都有過同樣的
+          困惑：明明是同一套主題，英文版看起來乾淨俐落，換成中文就顯得擁擠而
+          廉價。多數人的直覺反應是「字型不好」，於是花大把力氣去找思源黑體的
+          CDN，載入一個五百萬位元組的字型檔，結果發現視覺上幾乎沒有改善。
+        </p>
+
+        <p>
+          問題其實不在字型，而在行高。拉丁字母有升部與降部，字母之間高低錯落，
+          即使行距偏緊，眼睛依然能沿著字母的起伏找到行的邊界。中文則是方塊字，
+          每個字佔據完全相同的視覺面積，一整段文字在視覺上是一片均勻的灰。
+          當行距不足時，讀者的眼睛找不到落點，於是產生「密不透風」的感受。
+        </p>
+
+        <h2>三個真正該修的東西</h2>
+
+        <p>
+          第一是行高。拉丁文的 1.5 到 1.6 在中文下應該提高到 1.75 至 1.85。
+          這個數字看起來只是小幅調整，但它是所有改善中投報率最高的一項。
+        </p>
+
+        <p>
+          第二是標點。中文的全形標點自帶左右留白，兩個標點相鄰時會出現明顯的
+          視覺空洞——例如引號緊接著逗號的情況。CSS Text Level 4 的
+          <code>text-spacing-trim</code> 專門處理這個問題，一行程式碼即可解決。
+        </p>
+
+        <p>
+          第三是段落間距。中文缺乏大小寫的視覺起伏，段落的節奏感只能依靠留白
+          建立。段距若與行距相差不大，整篇文章會退化成一大塊沒有結構的文字。
+        </p>
+
+        <blockquote>
+          <p>
+            排版的目的不是讓文字好看，而是讓讀者忘記自己正在閱讀。
+            當版面設計得當時，讀者只會感覺到內容本身。
+          </p>
+        </blockquote>
+
+        <h3>驗證的方法</h3>
+
+        <p>
+          最可靠的驗證方式是找一段真實的長文放進去讀，而不是看示意圖。
+          設計稿上的假文永遠是均勻的，真實內容才會暴露出標題與段落的距離、
+          清單的縮排、程式碼區塊前後的呼吸感這些真正影響閱讀的細節。
+        </p>
+
+        <ol>
+          <li>把一篇實際寫過的文章貼進來，完整讀一遍</li>
+          <li>用手機開啟，確認在窄螢幕下每行字數仍然合理</li>
+          <li>切換系統的深色模式，檢查對比度</li>
+          <li>把瀏覽器縮放到 125% 與 150%，確認節奏不會崩壞</li>
+        </ol>
+
+        <hr />
+
+        <p>
+          做完這三件事之後，如果仍然覺得不夠好看，那時候再去考慮字型。
+          屆時的差別會是「從及格到優秀」，而不是現在的「從不及格到及格」。
+        </p>
+      </article>
+    </section>
+
+    <!-- ================================================================== -->
+    <section class="section">
+      <h2 class="section-title">3. 中英混排與全形標點</h2>
+      <p class="note">
+        檢查重點：中文與英文／數字交界處是否有適當間隙（<code>text-autospace</code>）、
+        相鄰全形標點之間是否無視覺空洞（<code>text-spacing-trim</code>）。
+        兩者皆為漸進增強，瀏覽器不支援時會靜默忽略。
+      </p>
+
+      <div class="prose">
+        <p>
+          我們使用 Astro 7 搭配 TypeScript 開發，內容以 MDX 撰寫，程式碼區塊由
+          Shiki 渲染。整站的 JavaScript 預算控制在 50KB 以內，互動元件透過
+          <code>client:visible</code> 按需載入。
+        </p>
+        <p>
+          根據 2026 年的統計，中文使用者平均閱讀速度約為每分鐘 300 至 500 字，
+          比英文的 200 至 250 words per minute 高出約 40%。這代表中文內容的
+          「單位面積資訊密度」更高，因此更需要留白來平衡。
+        </p>
+        <p>
+          常見的標點組合：「引號緊接逗號」、（括號後接句號）。以及破折號——
+          它在中文裡佔兩個字寬。還有省略號……以及書名號《設計系統》和
+          頓號、分隔的並列項目。
+        </p>
+        <p>
+          強調的處理：中文沒有斜體字形，因此 <em>這段文字</em> 使用著重號
+          而非合成傾斜；<strong>粗體</strong>則使用字型的真實 700 字重。
+        </p>
+      </div>
+    </section>
+
+    <!-- ================================================================== -->
+    <section class="section">
+      <h2 class="section-title">4. 元素樣式</h2>
+
+      <div class="prose">
+        <h1>標題階層 H1</h1>
+        <p>H1 之後緊接的段落，間距應該較緊，形成從屬關係。</p>
+        <h2>標題階層 H2</h2>
+        <p>H2 帶有下邊框，用於區隔文章的主要章節。</p>
+        <h3>標題階層 H3</h3>
+        <p>H3 用於章節內的小節劃分。</p>
+        <h4>標題階層 H4</h4>
+        <p>H4 是最後一層會出現在目錄中的標題。</p>
+
+        <h3>無序清單</h3>
+        <ul>
+          <li>Token 分為 primitive、semantic 兩層</li>
+          <li>
+            語言差異在 token 層解決
+            <ul>
+              <li>元件只消費 semantic token</li>
+              <li>元件內不出現任何 <code>:lang()</code> 判斷</li>
+            </ul>
+          </li>
+          <li>Variant 以 <code>data-*</code> 屬性表達，不引入樣式框架</li>
+        </ul>
+
+        <h3>表格</h3>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>層級</th>
+                <th>技術</th>
+                <th>Client JS</th>
+                <th>用途</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>L1</td>
+                <td>Shiki + Expressive Code</td>
+                <td class="num">0</td>
+                <td>唯讀程式碼，全站八成以上</td>
+              </tr>
+              <tr>
+                <td>L2</td>
+                <td>sandpack-client + CodeMirror 6</td>
+                <td class="num">~200KB</td>
+                <td>可編輯、可執行</td>
+              </tr>
+              <tr>
+                <td>L3</td>
+                <td>Web Component + GSAP</td>
+                <td class="num">~50KB</td>
+                <td>控制變數面板</td>
+              </tr>
+              <tr>
+                <td>L4</td>
+                <td>Canvas / SVG</td>
+                <td class="num">~30KB</td>
+                <td>AI/ML 視覺化</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>程式碼</h3>
+        <p>行內程式碼如 <code>--measure-cjk</code> 與 <code>text-spacing-trim</code>，字級為內文的 0.9 倍。</p>
+        <pre><code>{tsSample}</code></pre>
+      </div>
+    </section>
+
+    <!-- ================================================================== -->
+    <section class="section">
+      <h2 class="section-title">5. 色階</h2>
+      <p class="note">
+        12 階，階梯語意參考 Radix Colors：1–2 背景、3–5 元件背景、6–8 邊框、
+        9–10 實心填色、11 低對比文字、12 高對比文字。
+        以 <code>light-dark()</code> 實作，切換系統深色模式即可驗證。
+      </p>
+
+      <div class="swatch-row">
+        {grayScale.map((token, i) => (
+          <div class="swatch" style={`background: var(${token})`}>
+            <span class={i > 8 ? "on-dark" : ""}>{i + 1}</span>
+          </div>
+        ))}
+      </div>
+      <p class="swatch-label"><code>--gray-1</code> … <code>--gray-12</code></p>
+
+      <div class="swatch-row">
+        {accentScale.map((token, i) => (
+          <div class="swatch" style={`background: var(${token})`}>
+            <span class={i > 7 ? "on-dark" : ""}>{i + 1}</span>
+          </div>
+        ))}
+      </div>
+      <p class="swatch-label">
+        <code>--accent-1</code> … <code>--accent-12</code> ——
+        Phase 2 的每個知識主題只需覆寫這 12 個值即可換色
+      </p>
+    </section>
+
+    <!-- ================================================================== -->
+    <section class="section">
+      <h2 class="section-title">6. 字級與間距 scale</h2>
+
+      <div class="scale-list">
+        {
+          textScale.map(([token, value]) => (
+            <div class="scale-row">
+              <code class="scale-token">{token}</code>
+              <span class="num">{value}</span>
+              <span style={`font-size: var(${token})`}>中文字級 Aa 123</span>
+            </div>
+          ))
+        }
+      </div>
+
+      <div class="scale-list">
+        {
+          spaceScale.map((n) => (
+            <div class="scale-row">
+              <code class="scale-token">--space-{n}</code>
+              <span class="space-bar" style={`inline-size: var(--space-${n})`} />
+            </div>
+          ))
+        }
+      </div>
+    </section>
+
+    <footer class="page-footer">
+      <p>
+        驗收條件：中文排版目測優於 Starlight 預設；本頁 client JS 為 0。
+      </p>
+    </footer>
+  </div>
+</BaseLayout>
+
+<style>
+  /* 頁面外框樣式，屬於這個展示頁本身，不是設計系統的一部分 */
+  .page {
+    max-inline-size: 60rem;
+    margin-inline: auto;
+    padding: var(--space-7) var(--space-5) var(--space-9);
+  }
+
+  .page-header {
+    padding-block-end: var(--space-6);
+    border-block-end: 1px solid var(--color-border-subtle);
+  }
+
+  .lede {
+    margin-block-start: var(--space-3);
+    max-inline-size: var(--measure-body);
+    color: var(--color-text-muted);
+  }
+
+  .section {
+    margin-block-start: var(--space-8);
+  }
+
+  .section-title {
+    margin-block-end: var(--space-4);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-bold);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-text-subtle);
+  }
+
+  .note {
+    max-inline-size: var(--measure-body);
+    margin-block-end: var(--space-5);
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+
+  /* --- 語言對照 --- */
+  .compare {
+    display: grid;
+    gap: var(--space-5);
+    grid-template-columns: 1fr;
+    margin-block-end: var(--space-6);
+  }
+
+  @media (min-width: 60rem) {
+    .compare {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+
+  .compare-col {
+    padding: var(--space-5);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-3);
+    background: var(--color-bg-subtle);
+  }
+
+  .compare-tag {
+    margin-block-end: var(--space-4);
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    letter-spacing: 0.04em;
+    color: var(--color-text-subtle);
+  }
+
+  .axis-table {
+    inline-size: 100%;
+    font-size: var(--text-sm);
+    line-height: var(--leading-tight);
+  }
+
+  .axis-table :is(th, td) {
+    padding: 0.55em 0.8em;
+    border-block-end: 1px solid var(--color-border-subtle);
+    text-align: start;
+  }
+
+  .axis-table thead th {
+    border-block-end: 1px solid var(--color-border);
+    color: var(--color-text-muted);
+    white-space: nowrap;
+  }
+
+  .table-wrapper {
+    overflow-x: auto;
+    margin-block-end: var(--space-5);
+  }
+
+  .num {
+    font-family: var(--font-mono);
+    font-size: 0.95em;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-text-muted);
+  }
+
+  /* --- 色階 --- */
+  .swatch-row {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    overflow: hidden;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-2);
+  }
+
+  .swatch {
+    display: grid;
+    place-items: center;
+    block-size: 3.5rem;
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--gray-12);
+  }
+
+  .swatch .on-dark {
+    color: var(--gray-1);
+  }
+
+  .swatch-label {
+    margin-block: var(--space-2) var(--space-6);
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+
+  /* --- scale --- */
+  .scale-list {
+    margin-block-end: var(--space-6);
+  }
+
+  .scale-row {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-4);
+    padding-block: var(--space-2);
+    border-block-end: 1px solid var(--color-border-subtle);
+  }
+
+  .scale-token {
+    inline-size: 9rem;
+    flex-shrink: 0;
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+  }
+
+  .scale-row .num {
+    inline-size: 5rem;
+    flex-shrink: 0;
+    font-size: var(--text-xs);
+  }
+
+  .space-bar {
+    block-size: 1rem;
+    border-radius: var(--radius-1);
+    background: var(--color-accent-solid);
+  }
+
+  /* --- footer --- */
+  .page-footer {
+    margin-block-start: var(--space-8);
+    padding-block-start: var(--space-5);
+    border-block-start: 1px solid var(--color-border-subtle);
+    font-size: var(--text-sm);
+    color: var(--color-text-subtle);
+  }
+</style>
