@@ -8,7 +8,8 @@
   },
   "scripts": {
     "dev": "astro dev",
-    "build": "astro build",
+    "build": "astro build && node scripts/perf-budget.mjs",
+    "perf": "node scripts/perf-budget.mjs",
     "preview": "astro preview",
     "astro": "astro"
   },

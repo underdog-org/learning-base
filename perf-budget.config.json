@@ -1,0 +1,34 @@
+{
+  "_": "效能預算紅線（ADR 0008）。單位一律為未壓縮 bytes。",
+  "_usage": [
+    "調高任何一條紅線，都必須在 commit message 說明理由。",
+    "閘門失敗的預設反應是修正架構，而非放寬閾值。",
+    "本檔與 scripts/perf-budget.mjs 分離，就是為了讓紅線變動在 diff 裡獨立且顯眼。"
+  ],
+  "_baseline": "2026-07-28 / 階段三結束（12 頁）：JS 全數為 0，CSS 14226 B，靜態資源 1414 B（favicon，字型 0）。",
+
+  "distDir": "dist",
+
+  "budgets": {
+    "sharedJs": {
+      "limit": 8192,
+      "_": "被兩個以上頁面引用的 JS 總量。核心防線：重量級依賴洩漏進共用路徑會先撞到這條。基準線 0。"
+    },
+    "singleChunk": {
+      "limit": 51200,
+      "_": "單一 JS chunk 上限。偵測意外的依賴合併（例如 barrel file 把整個 editor 拉進同一個 chunk）。基準線 0。"
+    },
+    "pageInitialJs": {
+      "limit": 8192,
+      "_": "單一頁面初始載入的 JS（<script src> + inline script + modulepreload）。client:visible / client:idle 的元件不計入，因為那是執行期才抓的。純文章頁應趨近 0。基準線 0。"
+    },
+    "staticAssets": {
+      "limit": 32768,
+      "_": "字型與靜態資源（字型、圖片、影音）總量。涵蓋 ADR 0004 中文字型的體積風險。基準線 15406 B，全為 favicon 等圖檔，字型 0。"
+    },
+    "css": {
+      "limit": 20480,
+      "_": "CSS 總量。不在 ADR 0008 的四條之列，但每個階段的驗收都在人工記錄這個數字，順手機器化。基準線 14226 B。"
+    }
+  }
+}
