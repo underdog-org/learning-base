@@ -1,0 +1,84 @@
+---
+/**
+ * 上／下一篇。順序來自 flattenNav()，與側邊欄的顯示順序恆定一致。
+ */
+import type { Siblings } from "../utils/nav";
+
+interface Props {
+  siblings: Siblings;
+}
+
+const { siblings } = Astro.props;
+const { prev, next } = siblings;
+---
+
+{
+  (prev || next) && (
+    <nav class="prevnext" aria-label="上下篇導航">
+      {prev ? (
+        <a class="prevnext__item" href={prev.href} rel="prev">
+          <span class="prevnext__dir">← 上一篇</span>
+          <span class="prevnext__title">{prev.title}</span>
+        </a>
+      ) : (
+        <span />
+      )}
+      {next && (
+        <a class="prevnext__item prevnext__item--next" href={next.href} rel="next">
+          <span class="prevnext__dir">下一篇 →</span>
+          <span class="prevnext__title">{next.title}</span>
+        </a>
+      )}
+    </nav>
+  )
+}
+
+<style>
+  @layer components {
+    .prevnext {
+      display: grid;
+      gap: var(--space-4);
+      grid-template-columns: 1fr;
+      margin-block-start: var(--space-8);
+      padding-block-start: var(--space-6);
+      border-block-start: 1px solid var(--color-border-subtle);
+    }
+
+    @media (min-width: 40rem) {
+      .prevnext {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+
+    .prevnext__item {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-2);
+      padding: var(--space-4);
+      border: 1px solid var(--color-border-subtle);
+      border-radius: var(--radius-3);
+      text-decoration: none;
+    }
+
+    .prevnext__item:hover {
+      border-color: var(--color-accent-border);
+      background: var(--color-bg-subtle);
+    }
+
+    .prevnext__item--next {
+      text-align: end;
+    }
+
+    .prevnext__dir {
+      font-size: var(--text-xs);
+      color: var(--color-text-subtle);
+    }
+
+    .prevnext__title {
+      font-weight: var(--weight-bold);
+      font-size: var(--text-sm);
+      line-height: var(--leading-tight);
+      color: var(--color-text);
+    }
+  }
+</style>

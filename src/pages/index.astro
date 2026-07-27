@@ -1,0 +1,98 @@
+---
+/**
+ * 首頁：主題索引。
+ *
+ * 複用 DocLayout 但不提供 sidebar / toc slot —— 骨架不碰資料，
+ * 因此三欄自動降為單欄，不需要另一個 layout。
+ */
+import { getCollection } from "astro:content";
+import DocLayout from "../layouts/DocLayout.astro";
+import { sortedTopics, topicOf } from "../utils/topics";
+
+const entries = await getCollection("docs", ({ data }) => !data.draft);
+const topics = sortedTopics().map((topic) => ({
+  ...topic,
+  count: entries.filter((e) => topicOf(e.id) === topic.slug).length,
+}));
+---
+
+<DocLayout
+  title="learning-base"
+  description="對外的書籍與知識庫：TypeScript、GSAP、AI/ML、Claude"
+>
+  <div class="prose">
+    <h1>learning-base</h1>
+    <p class="lede">
+      一個以中文書寫、為中文排版而設計的技術知識庫。
+      每個主題都是一本可以從頭讀到尾的書，而不是零散的筆記。
+    </p>
+
+    <ul class="topic-grid full-bleed">
+      {
+        topics.map((topic) => (
+          <li data-topic={topic.slug}>
+            <a href={`/docs/${topic.slug}`}>
+              <span class="topic-card__label">{topic.label}</span>
+              <span class="topic-card__desc">{topic.description}</span>
+              <span class="topic-card__count">{topic.count} 篇</span>
+            </a>
+          </li>
+        ))
+      }
+    </ul>
+  </div>
+</DocLayout>
+
+<style>
+  @layer components {
+    .lede {
+      font-size: var(--text-lg);
+      color: var(--color-text-muted);
+    }
+
+    .topic-grid {
+      display: grid;
+      gap: var(--space-4);
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+      list-style: none;
+      /* --flow 由 .prose 繼承下來，在子元素上覆寫即可調整自身的上方間距。
+         不需要 !important —— 自訂屬性的繼承就是這裡的覆寫機制。 */
+      --flow: var(--space-7);
+    }
+
+    .topic-grid a {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-2);
+      block-size: 100%;
+      padding: var(--space-5);
+      border: 1px solid var(--color-border-subtle);
+      border-radius: var(--radius-3);
+      text-decoration: none;
+    }
+
+    .topic-grid a:hover {
+      border-color: var(--accent-7);
+      background: var(--accent-2);
+    }
+
+    .topic-card__label {
+      font-weight: var(--weight-bold);
+      font-size: var(--text-lg);
+      color: var(--accent-11);
+    }
+
+    .topic-card__desc {
+      font-size: var(--text-sm);
+      line-height: var(--leading-tight);
+      color: var(--color-text-muted);
+    }
+
+    .topic-card__count {
+      margin-block-start: auto;
+      padding-block-start: var(--space-2);
+      font-size: var(--text-xs);
+      color: var(--color-text-subtle);
+    }
+  }
+</style>

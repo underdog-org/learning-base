@@ -1,0 +1,35 @@
+---
+/**
+ * 三欄文檔骨架。
+ *
+ * 這個元件完全不碰資料 —— 它只知道「有三個位置」，不知道裡面放什麼。
+ * 因此它同樣能被主題首頁、索引頁等非文章頁面複用。
+ * 版面規則在 src/styles/doc-layout.css（scoped style 無法跨越 slot 邊界）。
+ */
+import BaseLayout from "./BaseLayout.astro";
+import SiteHeader from "../components/SiteHeader.astro";
+
+interface Props {
+  title: string;
+  description?: string;
+  /** 決定 --accent-* 色階，見 src/styles/topics.css */
+  topic?: string;
+  lang?: string;
+}
+
+const { title, description, topic, lang } = Astro.props;
+---
+
+<BaseLayout title={title} description={description} lang={lang}>
+  <div data-topic={topic}>
+    <SiteHeader activeTopic={topic} hasSidebar={Astro.slots.has("sidebar")} />
+
+    <div class="doc-grid">
+      <slot name="sidebar" />
+      <main class="doc-main" id="main">
+        <slot />
+      </main>
+      <slot name="toc" />
+    </div>
+  </div>
+</BaseLayout>

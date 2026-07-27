@@ -1,0 +1,47 @@
+/**
+ * Shiki 程式碼區塊的深淺主題切換
+ *
+ * astro.config.mjs 設定 defaultColor: false，因此 Shiki 只在標記上輸出
+ * --shiki-light / --shiki-dark 兩組自訂屬性，不寫任何 inline 顏色。
+ * 顏色的選擇在這裡完成，用的是與 tokens.css 色階同一套機制：light-dark()。
+ *
+ * 這代表日後加上手動的深淺模式切換時（切換 color-scheme），
+ * 程式碼區塊會自動跟著換，不需要任何額外處理。
+ *
+ * Phase 5 導入 astro-expressive-code 之後，本檔需重新檢視 ——
+ * Expressive Code 會接管程式碼區塊的渲染。
+ */
+
+@layer components {
+  /* 只有前景色套到 span。
+     背景色**絕對不可以**寫進 span 的規則 —— Shiki 只在 <pre> 上宣告
+     --shiki-*-bg，但自訂屬性會繼承，於是每個 span 都拿得到那個值，
+     結果是每一行、每一個 token 各自再塗一層不透明背景。 */
+  .astro-code,
+  .astro-code span {
+    color: light-dark(var(--shiki-light), var(--shiki-dark));
+  }
+
+  /* 背景刻意採用本站的表面色，而非 Shiki 主題自帶的底色。
+     程式碼區塊的邊框、圓角、內距都來自 prose.css 的設計系統，
+     底色若獨立於 token 之外，會在深色模式下與周圍表面對不齊。
+     語法色在略微不同的深灰上仍有足夠對比。 */
+  .astro-code {
+    background-color: var(--color-bg-subtle);
+  }
+
+  /* font-style 等非顏色屬性無法用 light-dark()，改以偏好查詢處理。
+     只影響註解的斜體，兩個主題差異極小。 */
+  @media (prefers-color-scheme: dark) {
+    .astro-code span {
+      font-style: var(--shiki-dark-font-style);
+      font-weight: var(--shiki-dark-font-weight);
+      text-decoration: var(--shiki-dark-text-decoration);
+    }
+  }
+
+  /* 中文註解需要落在 CJK 字體上，且不套用中英自動間距（見 base.css） */
+  .astro-code {
+    font-family: var(--font-code);
+  }
+}

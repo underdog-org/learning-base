@@ -8,10 +8,25 @@
  */
 
 @layer components {
+  /* .prose 自身就是 full-bleed 的 grid 容器。
+     內文被 content 軌道限制在 --measure-body，而 .full-bleed 的元素
+     （L2 Playground、L3 控制面板、寬表格）可以突破到 full 軌道。
+
+     為什麼把 grid 放在 .prose 而不是外層包一層：
+     互動元件是由 MDX 直接輸出的，它們是 .prose 的直接子元素。
+     若 grid 在外層，這些元件會被困在 .prose 內部而無法突破。 */
   .prose {
-    max-inline-size: var(--measure-body);
+    display: grid;
+    grid-template-columns:
+      [full-start] minmax(0, 1fr)
+      [content-start] min(var(--measure-body), 100%) [content-end]
+      minmax(0, 1fr) [full-end];
     /* 節奏基準：段落間距 */
     --flow: var(--paragraph-gap);
+  }
+
+  .prose > * {
+    grid-column: content;
   }
 
   /* 相鄰兄弟選擇器建立單向的垂直節奏，不需處理 margin 摺疊 */
@@ -139,9 +154,10 @@
     margin-block: 2.5em;
   }
 
-  /* 表格、程式碼區塊、互動元件可能需要突破內文寬度。
-     由內容端加上 .full-bleed，不影響預設節奏。 */
-  .prose .full-bleed {
+  /* 突破內文寬度，佔滿整個內容欄。由內容端加上 .full-bleed 即可，
+     不影響預設節奏。 */
+  .prose > .full-bleed {
+    grid-column: full;
     max-inline-size: none;
   }
 }

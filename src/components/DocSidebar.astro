@@ -1,0 +1,64 @@
+---
+/**
+ * 側邊欄：把資料轉成視覺，遞迴渲染交給 SidebarTree。
+ *
+ * popover 屬性讓同一份 DOM 在窄螢幕成為抽屜、寬螢幕成為 sticky 欄位，
+ * 版面切換規則在 src/styles/doc-layout.css。
+ */
+import type { NavNode } from "../utils/nav";
+import type { Topic } from "../utils/topics";
+import SidebarTree from "./SidebarTree.astro";
+
+interface Props {
+  topic: Topic;
+  nodes: NavNode[];
+  currentId: string;
+}
+
+const { topic, nodes, currentId } = Astro.props;
+---
+
+<nav
+  id="doc-sidebar"
+  class="doc-sidebar"
+  popover="auto"
+  aria-label={`${topic.label} 章節導航`}
+>
+  <a
+    class="sidebar-topic"
+    href={`/docs/${topic.slug}`}
+    aria-current={currentId === topic.slug ? "page" : undefined}
+  >
+    <span class="sidebar-topic__label">{topic.label}</span>
+    <span class="sidebar-topic__desc">{topic.description}</span>
+  </a>
+
+  <SidebarTree nodes={nodes} currentId={currentId} />
+</nav>
+
+<style>
+  @layer components {
+    .sidebar-topic {
+      display: block;
+      margin-block-end: var(--space-5);
+      padding-block-end: var(--space-4);
+      border-block-end: 1px solid var(--color-border-subtle);
+      text-decoration: none;
+    }
+
+    .sidebar-topic__label {
+      display: block;
+      font-weight: var(--weight-bold);
+      font-size: var(--text-md);
+      color: var(--accent-11);
+    }
+
+    .sidebar-topic__desc {
+      display: block;
+      margin-block-start: var(--space-1);
+      font-size: var(--text-xs);
+      line-height: var(--leading-tight);
+      color: var(--color-text-subtle);
+    }
+  }
+</style>
