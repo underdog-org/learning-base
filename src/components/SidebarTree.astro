@@ -1,0 +1,115 @@
+---
+/**
+ * 側邊欄的遞迴渲染。
+ *
+ * 純視覺元件：它不知道 getCollection 的存在，也不參與樹的建構。
+ * 因為遞迴呼叫自身，任意巢狀深度都支援，不需要為「第三層」寫新程式碼。
+ */
+import type { NavNode } from "../utils/nav";
+
+interface Props {
+  nodes: NavNode[];
+  currentId: string;
+  depth?: number;
+}
+
+const { nodes, currentId, depth = 0 } = Astro.props;
+---
+
+<ul class="tree" data-depth={depth}>
+  {
+    nodes.map((node) =>
+      node.type === "link" ? (
+        <li>
+          <a
+            href={node.href}
+            class="tree-link"
+            aria-current={node.id === currentId ? "page" : undefined}
+          >
+            {node.title}
+          </a>
+        </li>
+      ) : (
+        <li>
+          {node.href ? (
+            <a
+              href={node.href}
+              class="tree-link tree-group-label"
+              aria-current={node.id === currentId ? "page" : undefined}
+            >
+              {node.title}
+            </a>
+          ) : (
+            <span class="tree-group-label">{node.title}</span>
+          )}
+          <Astro.self
+            nodes={node.children}
+            currentId={currentId}
+            depth={depth + 1}
+          />
+        </li>
+      ),
+    )
+  }
+</ul>
+
+<style>
+  @layer components {
+    .tree {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+    }
+
+    /* 巢狀層級用一條細導引線表示從屬關係，
+       比純縮排更能在長清單中維持結構感 */
+    .tree:not([data-depth="0"]) {
+      margin-block-start: 1px;
+      margin-inline-start: var(--space-3);
+      padding-inline-start: var(--space-3);
+      border-inline-start: 1px solid var(--color-border-subtle);
+    }
+
+    .tree-link,
+    .tree-group-label {
+      display: block;
+      padding: var(--space-2) var(--space-3);
+      border-radius: var(--radius-2);
+      font-size: var(--text-sm);
+      line-height: var(--leading-tight);
+      color: var(--color-text-muted);
+      text-decoration: none;
+      /* 中文標題沒有空格可斷，過長時以兩行截斷。
+         單行截斷會切掉太多資訊，中文的資訊密度較高更明顯。 */
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    a.tree-link:hover {
+      background: var(--color-surface);
+      color: var(--color-text);
+    }
+
+    .tree-group-label {
+      margin-block-start: var(--space-3);
+      font-weight: var(--weight-bold);
+      font-size: var(--text-xs);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--color-text-subtle);
+    }
+
+    .tree[data-depth="0"] > li:first-child > .tree-group-label {
+      margin-block-start: 0;
+    }
+
+    .tree-link[aria-current="page"] {
+      background: var(--accent-3);
+      color: var(--accent-11);
+      font-weight: var(--weight-bold);
+    }
+  }
+</style>

@@ -1,0 +1,115 @@
+---
+/**
+ * 全站導航列。
+ *
+ * 側邊欄開關使用 Popover API：popovertarget 指向 DocSidebar 的 id，
+ * 開關、Esc 關閉、點擊外部關閉、focus 管理全部由瀏覽器處理，零 JavaScript。
+ */
+import { sortedTopics } from "../utils/topics";
+
+interface Props {
+  activeTopic?: string;
+  hasSidebar?: boolean;
+}
+
+const { activeTopic, hasSidebar = false } = Astro.props;
+const topics = sortedTopics();
+---
+
+<header class="site-header">
+  <div class="site-header__inner">
+    {
+      hasSidebar && (
+        <button class="nav-toggle" popovertarget="doc-sidebar" type="button">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.6"
+            stroke-linecap="round"
+            aria-hidden="true"
+          >
+            <path d="M2 4h12M2 8h12M2 12h12" />
+          </svg>
+          目錄
+        </button>
+      )
+    }
+
+    <a class="brand" href="/">learning&#8203;-base</a>
+
+    <nav class="topic-nav" aria-label="主題導航">
+      <ul>
+        {
+          topics.map((topic) => (
+            <li>
+              <a
+                href={`/docs/${topic.slug}`}
+                data-topic={topic.slug}
+                aria-current={topic.slug === activeTopic ? "true" : undefined}
+              >
+                {topic.label}
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<style>
+  @layer components {
+    .brand {
+      flex-shrink: 0;
+      font-weight: var(--weight-bold);
+      font-size: var(--text-sm);
+      letter-spacing: 0.01em;
+      color: var(--color-text);
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
+    .topic-nav {
+      min-inline-size: 0;
+      margin-inline-start: auto;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+
+    .topic-nav::-webkit-scrollbar {
+      display: none;
+    }
+
+    .topic-nav ul {
+      display: flex;
+      gap: var(--space-1);
+      list-style: none;
+    }
+
+    .topic-nav a {
+      display: block;
+      padding: var(--space-2) var(--space-3);
+      border-radius: var(--radius-2);
+      font-size: var(--text-sm);
+      color: var(--color-text-muted);
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
+    .topic-nav a:hover {
+      background: var(--color-surface);
+      color: var(--color-text);
+    }
+
+    /* 每個主題連結用自己的 accent —— data-topic 讓 topics.css 的
+       色階覆寫在這裡自動生效，導航列不需要知道任何顏色。 */
+    .topic-nav a[aria-current] {
+      background: var(--accent-3);
+      color: var(--accent-11);
+      font-weight: var(--weight-bold);
+    }
+  }
+</style>

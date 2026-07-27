@@ -1,0 +1,86 @@
+---
+/**
+ * 文檔路由：/docs/{topic}/{...}
+ *
+ * 頁面只渲染單一主題 —— 側邊欄僅包含當前 topic 的章節，
+ * 主題之間的切換走 header 的全站導航。
+ */
+import { getCollection, render } from "astro:content";
+import DocLayout from "../../layouts/DocLayout.astro";
+import DocSidebar from "../../components/DocSidebar.astro";
+import DocToc from "../../components/DocToc.astro";
+import PrevNext from "../../components/PrevNext.astro";
+import { buildNavTree, findSiblings } from "../../utils/nav";
+import { nestHeadings, hasUsefulToc } from "../../utils/toc";
+import { getTopic, topicOf } from "../../utils/topics";
+
+export async function getStaticPaths() {
+  const entries = await getCollection("docs", ({ data }) => !data.draft);
+
+  return entries.map((entry) => ({
+    params: { slug: entry.id },
+    props: { entry, entries },
+  }));
+}
+
+const { entry, entries } = Astro.props;
+const { Content, headings } = await render(entry);
+
+const topicSlug = topicOf(entry.id);
+const topic = getTopic(topicSlug);
+if (!topic) {
+  throw new Error(
+    `文檔 "${entry.id}" 的主題 "${topicSlug}" 未在 src/utils/topics.ts 註冊`,
+  );
+}
+
+const nav = buildNavTree(entries, topicSlug);
+const toc = nestHeadings(headings);
+
+// 主題總覽頁不在導航樹裡，但它是閱讀順序的第一篇
+const overview = entries.find((e) => e.id === topicSlug);
+const siblings = findSiblings(
+  nav,
+  entry.id,
+  overview
+    ? {
+        title: overview.data.title,
+        href: `/docs/${topicSlug}`,
+        id: topicSlug,
+      }
+    : undefined,
+);
+---
+
+<DocLayout
+  title={`${entry.data.title} — ${topic.label}`}
+  description={entry.data.description}
+  topic={topicSlug}
+  lang={entry.data.lang}
+>
+  <DocSidebar slot="sidebar" topic={topic} nodes={nav} currentId={entry.id} />
+
+  {hasUsefulToc(toc) && <DocToc slot="toc" nodes={toc} />}
+
+  <article class="prose">
+    <h1>{entry.data.title}</h1>
+    {entry.data.description && <p class="lede">{entry.data.description}</p>}
+    <Content />
+    <PrevNext siblings={siblings} />
+  </article>
+</DocLayout>
+
+<style>
+  @layer components {
+    .lede {
+      font-size: var(--text-lg);
+      color: var(--color-text-muted);
+      text-wrap: pretty;
+    }
+
+    /* 導言與 h1 屬於同一個標題區塊，間距要比一般段落緊 */
+    .prose > h1 + .lede {
+      margin-block-start: var(--space-3);
+    }
+  }
+</style>
