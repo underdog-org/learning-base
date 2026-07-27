@@ -1,0 +1,192 @@
+/**
+ * 三欄文檔骨架
+ *
+ * 為什麼放在共用樣式而非各 component 的 scoped style：
+ * sidebar 與 TOC 是透過 <slot> 傳進 DocLayout 的，Astro 的 scoped style
+ * 無法跨越 slot 邊界。把版面規則集中在一處，也讓「欄寬 × 間距 × sticky」
+ * 這三件互相牽動的事能一起讀懂。
+ *
+ * 各 component 的 scoped style 只負責自身內部的視覺，不碰版面。
+ */
+
+@layer components {
+  /* ==========================================================================
+     Header
+     ========================================================================== */
+
+  .site-header {
+    position: sticky;
+    inset-block-start: 0;
+    z-index: 10;
+    block-size: var(--header-height);
+    border-block-end: 1px solid var(--color-border-subtle);
+    background: color-mix(in oklab, var(--color-bg) 85%, transparent);
+    backdrop-filter: blur(8px);
+  }
+
+  /* 與 .doc-grid 一樣貼齊視窗邊緣，讓 header 的左右元素與下方的
+     sidebar / TOC 對齊在同一條線上 */
+  .site-header__inner {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    block-size: 100%;
+    padding-inline: var(--page-pad-inline);
+  }
+
+  @media (min-width: 48rem) {
+    .site-header__inner {
+      gap: var(--space-5);
+    }
+  }
+
+  /* ==========================================================================
+     三欄骨架
+     ==========================================================================
+     兩個設計決定：
+
+     一、用顯式的「間距軌道」而非 column-gap
+       兩側間距刻意不等寬（tokens.css 規則二），而 column-gap 只能設單一值。
+
+     二、間距軌道用 minmax(最小值, N fr)，整個 grid 不設 max-inline-size
+       sidebar 與 TOC 因此錨定在視窗左右邊緣（tokens.css 規則三），
+       多出來的寬度全部由兩側間距軌道吸收，內文由 --main-max 封頂並置中。
+       0.9fr / 1.1fr 的權重讓規則二的不對稱在任何視窗寬度下都維持比例。 */
+
+  .doc-grid {
+    display: grid;
+    grid-template-columns: [main-start] minmax(0, 1fr) [main-end];
+    padding-inline: var(--page-pad-inline);
+  }
+
+  /* 兩欄：sidebar + 內文 */
+  @media (min-width: 64rem) {
+    .doc-grid {
+      grid-template-columns:
+        [nav-start] var(--sidebar-width) [nav-end]
+        minmax(var(--gutter-sidebar), 1fr)
+        [main-start] minmax(0, var(--main-max)) [main-end]
+        minmax(var(--gutter-sidebar), 1fr);
+    }
+  }
+
+  /* 三欄：加上 TOC */
+  @media (min-width: 80rem) {
+    .doc-grid {
+      grid-template-columns:
+        [nav-start] var(--sidebar-width) [nav-end]
+        minmax(var(--gutter-sidebar), 0.9fr)
+        [main-start] minmax(0, var(--main-max)) [main-end]
+        minmax(var(--gutter-toc), 1.1fr)
+        [toc-start] var(--toc-width) [toc-end];
+    }
+  }
+
+  .doc-main {
+    grid-column: main;
+    /* grid item 的 min-width 預設為 auto，寬表格或長 URL 會撐爆整個版面。
+       這個 0 是必要的，不是風格。 */
+    min-inline-size: 0;
+    padding-block: var(--content-pad-block);
+  }
+
+  /* ==========================================================================
+     Sidebar
+     ==========================================================================
+     同一份 DOM 在窄螢幕是 popover 抽屜、在寬螢幕是 sticky 欄位。
+     不重複渲染兩份，避免重複的地標與可聚焦元素。 */
+
+  .doc-sidebar {
+    /* 窄螢幕：popover 抽屜。
+       light-dismiss、Esc 關閉、focus 管理、top layer 全由瀏覽器負責，
+       零 JavaScript。 */
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 20;
+    inline-size: min(20rem, 85vw);
+    max-block-size: 100dvh;
+    margin: 0;
+    padding: var(--space-5) var(--space-4);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border: none;
+    border-inline-end: 1px solid var(--color-border-subtle);
+    background: var(--color-bg);
+    color: var(--color-text);
+  }
+
+  .doc-sidebar::backdrop {
+    background: light-dark(rgb(0 0 0 / 0.35), rgb(0 0 0 / 0.6));
+  }
+
+  @media (min-width: 64rem) {
+    .doc-sidebar {
+      /* 覆蓋 UA 的 [popover]:not(:popover-open) { display: none }。
+         作者樣式恆勝 UA 樣式，不需要提高權重或 !important。 */
+      display: block;
+      grid-column: nav;
+      /* align-self 預設是 stretch，元素高度會等於整欄高度，
+         於是 sticky 永遠沒有可黏著的空間 —— 看起來就像 sticky 壞掉。 */
+      align-self: start;
+      position: sticky;
+      inset: auto;
+      inset-block-start: var(--sticky-offset);
+      z-index: auto;
+      inline-size: auto;
+      max-block-size: calc(100dvh - var(--sticky-offset));
+      padding: var(--content-pad-block) var(--sidebar-pad-inline)
+        var(--space-6);
+      border: none;
+      background: none;
+    }
+  }
+
+  .nav-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    /* flex 容器預設允許收縮，窄螢幕下按鈕會被壓成一個字寬、
+       文字直向斷行。這兩行是修正的重點。 */
+    flex-shrink: 0;
+    white-space: nowrap;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-2);
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+
+  .nav-toggle:hover {
+    background: var(--color-surface);
+    color: var(--color-text);
+  }
+
+  @media (min-width: 64rem) {
+    .nav-toggle {
+      display: none;
+    }
+  }
+
+  /* ==========================================================================
+     TOC
+     ========================================================================== */
+
+  .doc-toc {
+    display: none;
+  }
+
+  @media (min-width: 80rem) {
+    .doc-toc {
+      display: block;
+      grid-column: toc;
+      align-self: start;
+      position: sticky;
+      inset-block-start: var(--sticky-offset);
+      max-block-size: calc(100dvh - var(--sticky-offset));
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      padding: var(--content-pad-block) 0 var(--space-6)
+        var(--toc-pad-inline);
+    }
+  }
+}

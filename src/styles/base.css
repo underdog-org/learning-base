@@ -10,7 +10,8 @@
     /* 各語言的內文字級由 semantic token 決定，透過 :lang() 自動切換 */
     font-size: 100%;
     scroll-behavior: smooth;
-    scroll-padding-block-start: var(--space-6);
+    /* 與 sticky header 共用同一個偏移量，錨點捲動後標題不會被 header 蓋住 */
+    scroll-padding-block-start: var(--sticky-offset, var(--space-6));
   }
 
   body {

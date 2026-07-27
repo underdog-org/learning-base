@@ -1,0 +1,78 @@
+/**
+ * 主題色
+ *
+ * 每個知識主題只覆寫 --accent-1..12 這 12 個值。
+ * 沒有任何 component 需要修改 —— 這是 ADR 0002 的 data-* variant 策略
+ * 第一次真正兌現：換色是資料，不是程式碼。
+ *
+ * 色階取自 Radix Colors，階梯語意與 tokens.css 的 --gray-* 完全一致：
+ *   1–2 背景 / 3–5 元件背景 / 6–8 邊框 / 9–10 實心 / 11 低對比文字 / 12 高對比文字
+ *
+ * 新增主題：在 src/utils/topics.ts 註冊，再於此加一組色階。
+ */
+
+@layer components {
+  /* --- TypeScript：blue ---------------------------------------------------- */
+  [data-topic="typescript"] {
+    --accent-1: light-dark(#fbfdff, #0d1520);
+    --accent-2: light-dark(#f4faff, #111927);
+    --accent-3: light-dark(#e6f4fe, #0d2847);
+    --accent-4: light-dark(#d5efff, #003362);
+    --accent-5: light-dark(#c2e5ff, #004074);
+    --accent-6: light-dark(#acd8fc, #104d87);
+    --accent-7: light-dark(#8ec8f6, #205d9e);
+    --accent-8: light-dark(#5eb1ef, #2870bd);
+    --accent-9: light-dark(#0090ff, #0090ff);
+    --accent-10: light-dark(#0588f0, #3b9eff);
+    --accent-11: light-dark(#0d74ce, #70b8ff);
+    --accent-12: light-dark(#113264, #c2e6ff);
+  }
+
+  /* --- GSAP：grass --------------------------------------------------------- */
+  [data-topic="gsap"] {
+    --accent-1: light-dark(#fbfefb, #0e1511);
+    --accent-2: light-dark(#f5fbf5, #141a15);
+    --accent-3: light-dark(#e9f6e9, #1b2a1e);
+    --accent-4: light-dark(#daf1db, #1d3a24);
+    --accent-5: light-dark(#c9e8ca, #25482d);
+    --accent-6: light-dark(#b2ddb5, #2d5736);
+    --accent-7: light-dark(#94ce9a, #366740);
+    --accent-8: light-dark(#65ba74, #3e7949);
+    --accent-9: light-dark(#46a758, #46a758);
+    --accent-10: light-dark(#3e9b4f, #53b365);
+    --accent-11: light-dark(#2a7e3b, #71d083);
+    --accent-12: light-dark(#203c25, #c2f0c2);
+  }
+
+  /* --- AI / ML：violet ----------------------------------------------------- */
+  [data-topic="ai-ml"] {
+    --accent-1: light-dark(#fdfcfe, #14121f);
+    --accent-2: light-dark(#faf8ff, #1b1525);
+    --accent-3: light-dark(#f4f0fe, #291f43);
+    --accent-4: light-dark(#ebe4ff, #33255b);
+    --accent-5: light-dark(#e1d9ff, #3c2e69);
+    --accent-6: light-dark(#d4cafe, #473876);
+    --accent-7: light-dark(#c2b5f5, #56468b);
+    --accent-8: light-dark(#aa99ec, #6958ad);
+    --accent-9: light-dark(#6e56cf, #6e56cf);
+    --accent-10: light-dark(#654dc4, #7d66d9);
+    --accent-11: light-dark(#6550b9, #baa7ff);
+    --accent-12: light-dark(#2f265f, #e2ddfe);
+  }
+
+  /* --- Claude：orange ------------------------------------------------------ */
+  [data-topic="claude"] {
+    --accent-1: light-dark(#fefcfb, #17120e);
+    --accent-2: light-dark(#fff7ed, #1e160f);
+    --accent-3: light-dark(#ffefd6, #331e0b);
+    --accent-4: light-dark(#ffdfb5, #462100);
+    --accent-5: light-dark(#ffd19a, #562800);
+    --accent-6: light-dark(#ffc182, #66350c);
+    --accent-7: light-dark(#f5ae73, #7e451d);
+    --accent-8: light-dark(#ec9455, #a35829);
+    --accent-9: light-dark(#f76b15, #f76b15);
+    --accent-10: light-dark(#ef5f00, #ff801f);
+    --accent-11: light-dark(#cc4e00, #ffa057);
+    --accent-12: light-dark(#582d1d, #ffe0c2);
+  }
+}
