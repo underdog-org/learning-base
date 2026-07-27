@@ -1,0 +1,92 @@
+/**
+ * 最小化 reset
+ *
+ * 原則：只移除瀏覽器預設中會妨礙設計的部分，不預設任何視覺風格。
+ * 所有視覺決策屬於 base / components layer。
+ */
+
+@layer reset {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  /* 清除預設外距 —— 節奏由 prose layer 統一控制 */
+  body,
+  h1, h2, h3, h4, h5, h6,
+  p,
+  figure,
+  blockquote,
+  dl, dd,
+  ol, ul,
+  pre {
+    margin: 0;
+  }
+
+  ol, ul {
+    padding: 0;
+  }
+
+  /* 禁止合成假粗體與假斜體。
+     中文合成粗體會糊成一團，合成斜體則是不存在的字形。
+     只使用字型檔實際提供的字重（見 tokens.css 的 --weight-*）。 */
+  html {
+    font-synthesis-weight: none;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  body {
+    min-block-size: 100vh;
+  }
+
+  img, picture, video, canvas, svg {
+    display: block;
+    max-inline-size: 100%;
+    block-size: auto;
+  }
+
+  input, button, textarea, select {
+    font: inherit;
+    color: inherit;
+  }
+
+  button {
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  table {
+    border-collapse: collapse;
+    border-spacing: 0;
+  }
+
+  /* 長字串（URL、識別碼）不撐破容器 */
+  p, li, dd, blockquote, td, th {
+    overflow-wrap: break-word;
+  }
+
+  :where(:focus-visible) {
+    outline: 2px solid var(--color-focus, currentColor);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}

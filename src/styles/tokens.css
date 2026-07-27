@@ -1,0 +1,219 @@
+/**
+ * Design Token
+ *
+ * 三層結構：
+ *   1. Primitive —— 原始值。排版相關的 primitive 一律「中西雙軸」（-latin / -cjk）。
+ *   2. Semantic  —— 由 primitive 組合。元件只消費這一層，不做語言判斷。
+ *   3. 語言隔離  —— 以 :lang() 覆寫 semantic token。
+ *
+ * 為什麼是 :lang() 而不是 class：
+ *   MDX 內容必然出現中文文章夾英文段落的情況。:lang() 可被任意層級的
+ *   <div lang="en"> 局部覆蓋並自然繼承，class 方案做不到，且會污染內容層。
+ *
+ * 見 docs/adr/0002-style-system-tokens-cjk.md
+ */
+
+@layer tokens {
+  /* ==========================================================================
+     1. PRIMITIVE
+     ========================================================================== */
+
+  :root {
+    color-scheme: light dark;
+
+    /* --- 字型 ---------------------------------------------------------------
+       中西分離。拉丁排前、中文排後，瀏覽器依 codepoint 自動分派：
+       英文字元命中 --font-latin，中文字元落空後由 --font-cjk 接手。
+       因此字型堆疊「不需要」隨語言切換 —— 同一組堆疊在中英文下都正確。
+
+       階段一使用系統字型，零下載。中文 webfont 全量載入為 5–20MB／字重，
+       是全案最大的效能風險。日後如需自訂字型，只需替換 --font-cjk 並補上
+       分片 @font-face，不影響任何 component。
+       見 docs/adr/0004-cjk-font-strategy.md */
+    --font-latin: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+      Helvetica, Arial, sans-serif;
+    --font-cjk: "PingFang TC", "Hiragino Sans CNS", "Microsoft JhengHei",
+      "Noto Sans CJK TC", "Noto Sans TC", "PingFang SC", "Microsoft YaHei",
+      sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+      "Liberation Mono", monospace;
+
+    /* --- 字重 ---------------------------------------------------------------
+       只使用系統字型實際提供的真實字重。不使用 300 / 500 / 600 ——
+       中文系統字型多半沒有這些字重檔，瀏覽器會合成假粗體並糊成一團。 */
+    --weight-normal: 400;
+    --weight-bold: 700;
+
+    /* --- 行高（雙軸）--------------------------------------------------------
+       中文方塊字缺乏 x-height 起伏，同樣的行距在視覺上比拉丁文更擁擠，
+       因此需要更鬆的行高。 */
+    --leading-latin: 1.6;
+    --leading-cjk: 1.8;
+    --leading-heading-latin: 1.25;
+    --leading-heading-cjk: 1.4;
+    --leading-tight: 1.35;
+
+    /* --- 字距（雙軸）--------------------------------------------------------
+       中文極小的正字距可改善辨識度；拉丁文則不需要。 */
+    --tracking-latin: 0;
+    --tracking-cjk: 0.02em;
+
+    /* --- 內文寬度（雙軸）----------------------------------------------------
+       ch 是「0」字元的寬度，只對拉丁文有意義。中文字寬 = 1em，
+       用 em 才能精確控制每行字數。目標 38–42 中文字／行。 */
+    --measure-latin: 65ch;
+    --measure-cjk: 40em;
+
+    /* --- 內文字級（雙軸）----------------------------------------------------
+       中文字形筆畫密度高於拉丁字母，相同 px 下辨識負擔較大，略微加大。 */
+    --text-body-latin: 1rem;
+    --text-body-cjk: 1.0625rem;
+
+    /* --- 段落間距（雙軸）----------------------------------------------------
+       規則：段距 ≥ 行間空隙 × 1.5，其中行間空隙 = (line-height − 1)em。
+         拉丁：(1.6 − 1) × 1.5 = 0.90em  → 取 1.15em
+         中文：(1.8 − 1) × 1.5 = 1.20em  → 取 1.40em
+       中文沒有大小寫的視覺起伏，段落節奏只能靠段距建立，因此取值偏鬆。 */
+    --paragraph-gap-latin: 1.15em;
+    --paragraph-gap-cjk: 1.4em;
+
+    /* --- 字級 scale --------------------------------------------------------- */
+    --text-2xs: 0.75rem;
+    --text-xs: 0.8125rem;
+    --text-sm: 0.875rem;
+    --text-md: 1rem;
+    --text-lg: 1.125rem;
+    --text-xl: 1.25rem;
+    --text-2xl: 1.5rem;
+    --text-3xl: 1.875rem;
+    --text-4xl: 2.25rem;
+    --text-5xl: 3rem;
+
+    /* --- 間距 scale --------------------------------------------------------- */
+    --space-0: 0;
+    --space-1: 0.25rem;
+    --space-2: 0.5rem;
+    --space-3: 0.75rem;
+    --space-4: 1rem;
+    --space-5: 1.5rem;
+    --space-6: 2rem;
+    --space-7: 3rem;
+    --space-8: 4rem;
+    --space-9: 6rem;
+    --space-10: 8rem;
+
+    /* --- 圓角 --------------------------------------------------------------- */
+    --radius-1: 0.1875rem;
+    --radius-2: 0.375rem;
+    --radius-3: 0.5rem;
+    --radius-4: 0.75rem;
+    --radius-full: 9999px;
+
+    /* --- 陰影 --------------------------------------------------------------- */
+    --shadow-1: 0 1px 2px light-dark(rgb(0 0 0 / 0.05), rgb(0 0 0 / 0.3));
+    --shadow-2: 0 2px 8px light-dark(rgb(0 0 0 / 0.08), rgb(0 0 0 / 0.4));
+    --shadow-3: 0 8px 24px light-dark(rgb(0 0 0 / 0.12), rgb(0 0 0 / 0.5));
+
+    /* --- 色階：中性 ---------------------------------------------------------
+       12 階，參考 Radix Colors 的階梯語意：
+         1–2   應用背景        3–5   元件背景（一般／hover／active）
+         6–8   邊框（細／一般／強）  9–10  實心填色
+         11    低對比文字      12    高對比文字
+       用 light-dark() 讓深淺模式共用一組宣告，由 color-scheme 決定取值。 */
+    --gray-1: light-dark(#fcfcfd, #111113);
+    --gray-2: light-dark(#f9f9fb, #18191b);
+    --gray-3: light-dark(#f0f0f3, #212225);
+    --gray-4: light-dark(#e8e8ec, #272a2d);
+    --gray-5: light-dark(#e0e1e6, #2e3135);
+    --gray-6: light-dark(#d9d9e0, #363a3f);
+    --gray-7: light-dark(#cdced6, #43484e);
+    --gray-8: light-dark(#b9bbc6, #5a6169);
+    --gray-9: light-dark(#8b8d98, #696e77);
+    --gray-10: light-dark(#80838d, #777b84);
+    --gray-11: light-dark(#60646c, #b0b4ba);
+    --gray-12: light-dark(#1c2024, #edeef0);
+
+    /* --- 色階：強調色 -------------------------------------------------------
+       預設 indigo。每個知識主題（typescript / gsap / ai-ml）在 Phase 2
+       只需覆寫 --accent-1..12 這 12 個值即可換色，不需新增任何 component。 */
+    --accent-1: light-dark(#fdfdfe, #11131f);
+    --accent-2: light-dark(#f7f9ff, #141726);
+    --accent-3: light-dark(#edf2fe, #182449);
+    --accent-4: light-dark(#e1e9ff, #1d2e62);
+    --accent-5: light-dark(#d2deff, #253974);
+    --accent-6: light-dark(#c1d0ff, #304384);
+    --accent-7: light-dark(#abbdf9, #3a4f97);
+    --accent-8: light-dark(#8da4ef, #435db1);
+    --accent-9: light-dark(#3e63dd, #3e63dd);
+    --accent-10: light-dark(#3358d4, #5472e4);
+    --accent-11: light-dark(#3a5bc7, #9eb1ff);
+    --accent-12: light-dark(#1f2d5c, #d6e1ff);
+  }
+
+  /* ==========================================================================
+     2. SEMANTIC
+     由 primitive 組合。預設走拉丁軸，由下方的語言隔離層覆寫。
+     ========================================================================== */
+
+  :root {
+    /* 排版 */
+    --font-body: var(--font-latin), var(--font-cjk);
+    --font-heading: var(--font-body);
+    /* 等寬字沒有中文字符，需明確接上 CJK 軸供註解使用 */
+    --font-code: var(--font-mono), var(--font-cjk);
+
+    --text-body: var(--text-body-latin);
+    --leading-body: var(--leading-latin);
+    --leading-heading: var(--leading-heading-latin);
+    --tracking-body: var(--tracking-latin);
+    --measure-body: var(--measure-latin);
+    --paragraph-gap: var(--paragraph-gap-latin);
+
+    /* 色彩 */
+    --color-bg: var(--gray-1);
+    --color-bg-subtle: var(--gray-2);
+    --color-surface: var(--gray-3);
+    --color-surface-hover: var(--gray-4);
+    --color-border-subtle: var(--gray-6);
+    --color-border: var(--gray-7);
+    --color-border-strong: var(--gray-8);
+
+    --color-text: var(--gray-12);
+    --color-text-muted: var(--gray-11);
+    --color-text-subtle: var(--gray-10);
+
+    --color-link: var(--accent-11);
+    --color-link-hover: var(--accent-12);
+    --color-accent-solid: var(--accent-9);
+    --color-accent-solid-hover: var(--accent-10);
+    --color-accent-bg: var(--accent-3);
+    --color-accent-border: var(--accent-7);
+    --color-focus: var(--accent-9);
+  }
+
+  /* ==========================================================================
+     3. 語言隔離
+     只覆寫「軸」相關的 semantic token。字型堆疊不在此列 ——
+     中西分離的堆疊在任一語言下都正確（見上方 --font-latin 註解）。
+     ========================================================================== */
+
+  :root:lang(zh),
+  [lang^="zh"] {
+    --text-body: var(--text-body-cjk);
+    --leading-body: var(--leading-cjk);
+    --leading-heading: var(--leading-heading-cjk);
+    --tracking-body: var(--tracking-cjk);
+    --measure-body: var(--measure-cjk);
+    --paragraph-gap: var(--paragraph-gap-cjk);
+  }
+
+  /* 日文的行高需求接近中文，字距則不加 */
+  :root:lang(ja),
+  [lang^="ja"] {
+    --text-body: var(--text-body-cjk);
+    --leading-body: var(--leading-cjk);
+    --leading-heading: var(--leading-heading-cjk);
+    --measure-body: var(--measure-cjk);
+    --paragraph-gap: var(--paragraph-gap-cjk);
+  }
+}

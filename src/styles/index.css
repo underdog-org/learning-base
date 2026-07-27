@@ -1,0 +1,16 @@
+/**
+ * 樣式進入點
+ *
+ * Cascade 順序由 @layer 明確宣告，取代選擇器權重競賽。
+ * 後宣告的 layer 優先權較高 —— utilities 永遠贏過 components，
+ * components 永遠贏過 base，依此類推。專案內不應出現 !important。
+ *
+ * 見 docs/adr/0002-style-system-tokens-cjk.md
+ */
+
+@layer reset, tokens, base, components, utilities;
+
+@import "./reset.css";
+@import "./tokens.css";
+@import "./base.css";
+@import "./prose.css";

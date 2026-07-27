@@ -1,0 +1,147 @@
+/**
+ * .prose —— 長文排版節奏
+ *
+ * 套在文章內容的容器上。所有間距以 em 為單位，使節奏隨字級等比縮放；
+ * 所有語言差異已由 token 層吸收，本檔不出現任何 :lang() 判斷。
+ *
+ * 節奏規則參考 @tailwindcss/typography 的比例關係，數值重新按 CJK 校準。
+ */
+
+@layer components {
+  .prose {
+    max-inline-size: var(--measure-body);
+    /* 節奏基準：段落間距 */
+    --flow: var(--paragraph-gap);
+  }
+
+  /* 相鄰兄弟選擇器建立單向的垂直節奏，不需處理 margin 摺疊 */
+  .prose > * + * {
+    margin-block-start: var(--flow);
+  }
+
+  /* --- 標題 --------------------------------------------------------------- */
+
+  .prose > :is(h2, h3, h4) {
+    /* 標題與「上一段」的距離必須明顯大於與「下一段」的距離，
+       否則讀者無法從空白判斷標題屬於哪一節。 */
+    margin-block-start: 2.5em;
+    margin-block-end: 0;
+  }
+
+  .prose > :is(h2, h3, h4) + * {
+    margin-block-start: 0.75em;
+  }
+
+  .prose > h1 {
+    margin-block-end: 0;
+  }
+
+  .prose > h1 + * {
+    margin-block-start: 1em;
+  }
+
+  .prose > h2 {
+    padding-block-end: 0.3em;
+    border-block-end: 1px solid var(--color-border-subtle);
+  }
+
+  /* --- 清單 --------------------------------------------------------------- */
+
+  .prose :is(ul, ol) {
+    padding-inline-start: 1.5em;
+  }
+
+  .prose ul { list-style: disc; }
+  .prose ol { list-style: decimal; }
+  .prose ul ul { list-style: circle; }
+
+  .prose li::marker {
+    color: var(--color-text-subtle);
+  }
+
+  .prose li + li {
+    /* 項目間距約為段距的一半 —— 足以分隔，又不至於讓清單散開 */
+    margin-block-start: 0.5em;
+  }
+
+  .prose li > :is(p, ul, ol) + * {
+    margin-block-start: 0.5em;
+  }
+
+  /* --- 引言 --------------------------------------------------------------- */
+
+  .prose blockquote {
+    padding-inline-start: 1.2em;
+    border-inline-start: 3px solid var(--color-accent-border);
+    color: var(--color-text-muted);
+  }
+
+  .prose blockquote > * + * {
+    margin-block-start: 0.8em;
+  }
+
+  /* --- 程式碼 ------------------------------------------------------------- */
+
+  .prose :not(pre) > code {
+    padding: 0.15em 0.35em;
+    border-radius: var(--radius-1);
+    background-color: var(--color-surface);
+    color: var(--color-text);
+  }
+
+  .prose pre {
+    padding: var(--space-4);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-3);
+    background-color: var(--color-bg-subtle);
+  }
+
+  /* --- 表格 ---------------------------------------------------------------
+     寬表格需橫向捲動，但捲動容器不能是 <table> 本身（會破壞欄寬計算）。
+     Phase 3 由 rehype 外掛自動包上 .table-wrapper。 */
+
+  .prose .table-wrapper {
+    overflow-x: auto;
+  }
+
+  .prose table {
+    inline-size: 100%;
+    font-size: 0.95em;
+    line-height: var(--leading-tight);
+  }
+
+  .prose :is(th, td) {
+    padding: 0.6em 0.8em;
+    border-block-end: 1px solid var(--color-border-subtle);
+    text-align: start;
+    vertical-align: top;
+  }
+
+  .prose thead th {
+    border-block-end: 1px solid var(--color-border);
+    white-space: nowrap;
+  }
+
+  /* --- 其他 --------------------------------------------------------------- */
+
+  .prose :is(img, video) {
+    border-radius: var(--radius-3);
+  }
+
+  .prose figcaption {
+    margin-block-start: 0.6em;
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+    text-align: center;
+  }
+
+  .prose hr {
+    margin-block: 2.5em;
+  }
+
+  /* 表格、程式碼區塊、互動元件可能需要突破內文寬度。
+     由內容端加上 .full-bleed，不影響預設節奏。 */
+  .prose .full-bleed {
+    max-inline-size: none;
+  }
+}
