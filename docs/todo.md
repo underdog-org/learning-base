@@ -8,64 +8,113 @@
 
 ## 現況
 
-- Minimal Astro project（`astro@^7.1.4`，pnpm workspace）
-- 尚未安裝任何額外依賴
+**階段一、二完成並通過人工驗證。** 下一步：階段三。
+
+- `astro@^7.1.4` + `@astrojs/mdx@^7.0.4`（pnpm workspace）
+- 11 頁靜態產物，**client JS = 0**，CSS 約 13KB
+- 樣式：`index / reset / tokens / base / prose / code / doc-layout / topics`
+- 資料層：`utils/nav.ts`、`utils/toc.ts`、`utils/topics.ts`（皆為 build 期純函式）
+- 四個主題：`typescript`（含二層巢狀）、`gsap`、`ai-ml`、`claude`
 
 ---
 
-## 階段一：樣式地基
+## 階段一：樣式地基 ✅
 
 > ADR [0002](adr/0002-style-system-tokens-cjk.md)、[0004](adr/0004-cjk-font-strategy.md)
 
 **目標**：建立 token 體系與 CJK 排版規則。此階段不需要任何新依賴。
 
-- [ ] 建立 `src/styles/` 結構
-  - [ ] `reset.css` —— 最小化 reset
-  - [ ] `tokens.css` —— primitive + semantic token
-  - [ ] `base.css` —— 元素預設樣式
-- [ ] 宣告 `@layer reset, tokens, base, components, utilities;`
-- [ ] **Primitive token 雙軸**
-  - [ ] 字型：`--font-latin` / `--font-cjk`（系統字型，零下載）
-  - [ ] 行高：`--leading-latin: 1.6` / `--leading-cjk: 1.8`
-  - [ ] 行寬：`--measure-latin: 65ch` / `--measure-cjk: 40em`
-  - [ ] 間距 scale、字級 scale、圓角、陰影
-  - [ ] 色彩：參考 Radix Colors 的 12 階 + light/dark 配對
-- [ ] **Semantic token** 由 primitive 組合（`--font-body`、`--leading-body`、`--measure-body`…）
-- [ ] **`:lang()` 隔離層** —— `:root:lang(zh), [lang^="zh"]` 覆寫語意 token
-- [ ] CJK 排版規則
-  - [ ] `text-spacing-trim: space-first`（標點擠壓，視覺改善最大）
-  - [ ] `text-autospace: normal`（中英混排）
-  - [ ] 確認目標瀏覽器支援度並準備 fallback
-  - [ ] 段距 ≥ 行距 × 1.5
-  - [ ] 只使用真實字重（400 / 700），禁用合成假粗體
-- [ ] 建立 `/style-guide` 測試頁：中文長文、中英混排、全形標點、清單、引言、表格
+- [x] 建立 `src/styles/` 結構
+  - [x] `index.css` —— 進入點，宣告 layer 順序
+  - [x] `reset.css` —— 最小化 reset
+  - [x] `tokens.css` —— primitive + semantic token + 語言隔離
+  - [x] `base.css` —— 元素預設樣式 + CJK 專屬規則
+  - [x] `prose.css` —— 長文節奏（components layer，計畫外新增，Phase 2 需要）
+- [x] 宣告 `@layer reset, tokens, base, components, utilities;`
+- [x] **Primitive token 雙軸**
+  - [x] 字型：`--font-latin` / `--font-cjk` / `--font-mono`（系統字型，零下載）
+  - [x] 行高：`--leading-latin: 1.6` / `--leading-cjk: 1.8`（+ heading 軸）
+  - [x] 行寬：`--measure-latin: 65ch` / `--measure-cjk: 40em`
+  - [x] 字級：`--text-body-latin: 1rem` / `--text-body-cjk: 1.0625rem`（計畫外新增的軸）
+  - [x] 字距：`--tracking-latin: 0` / `--tracking-cjk: 0.02em`（計畫外新增的軸）
+  - [x] 段距：`--paragraph-gap-latin` / `--paragraph-gap-cjk`
+  - [x] 間距 scale、字級 scale、圓角、陰影
+  - [x] 色彩：Radix Colors 12 階，以 `light-dark()` 實作深淺共用
+- [x] **Semantic token** 由 primitive 組合（`--font-body`、`--leading-body`、`--measure-body`…）
+- [x] **`:lang()` 隔離層** —— `:root:lang(zh), [lang^="zh"]` 覆寫語意 token（另含 `ja`）
+- [x] CJK 排版規則
+  - [x] `text-spacing-trim: space-first`（標點擠壓，視覺改善最大）
+  - [x] `text-autospace: normal`（中英混排）
+  - [x] 程式碼區塊反向關閉上述兩者（`space-all` / `no-autospace`）
+  - [x] 兩者皆為漸進增強，不支援時靜默忽略，無需 fallback
+  - [x] `line-break: strict`（禁則處理）、`hanging-punctuation: allow-end`
+  - [x] 段距 ≥ 行間空隙 × 1.5
+  - [x] 只使用真實字重（400 / 700），`font-synthesis-weight: none` 強制執行
+  - [x] 中文 `<em>` 改用著重號（`text-emphasis`）取代合成斜體
+- [x] 建立 `/style-guide` 測試頁：語言對照、中文長文、中英混排、全形標點、清單、引言、表格、色階、scale
 
-**驗收**：`/style-guide` 的中文排版目測優於 Starlight 預設。
+**驗收**：
+- [x] `pnpm build` 通過
+- [x] 產物 **client JS = 0**（`find dist -name "*.js" | wc -l` → 0）
+- [x] CSS 11.2KB 未壓縮傳輸；`@layer` 順序在 minify 後保留
+- [x] 中文排版目測優於 Starlight 預設
+- [x] Desktop / Mobile（Pixel 7、iPhone XR、iPad Air）／縮放 125%、150%／深淺模式
 
 ---
 
-## 階段二：DocLayout 與內容結構
+## 階段二：DocLayout 與內容結構 ✅
 
 > ADR [0001](adr/0001-self-built-astro-docs.md)
 
 **目標**：能渲染純文字文章，驗證階段一的排版在真實內容上成立。
 
-- [ ] 安裝 `@astrojs/mdx`，設定 `astro.config.mjs`
-- [ ] Content Collections
-  - [ ] `src/content.config.ts` —— docs collection schema（title、description、order、topic、draft…）
-  - [ ] 目錄結構 `src/content/docs/{topic}/…`
-  - [ ] 建立三個主題骨架：`typescript/`、`gsap/`、`ai-ml/`
-- [ ] 動態路由 `src/pages/docs/[...slug].astro`
-- [ ] **Layout 元件拆分**（參考 Fumadocs 的組合模型與 Starlight 的原始碼結構）
-  - [ ] `DocLayout.astro` —— 三欄骨架
-  - [ ] `Sidebar.astro` —— 由 collection 自動生成，按 topic 分區
-  - [ ] `TableOfContents.astro`
-  - [ ] `Header.astro`
-  - [ ] `PrevNext.astro`
-- [ ] 每個 topic 的 accent color（透過 token 覆寫，不新增 component）
-- [ ] 寫 2–3 篇真實中文文章驗證
+- [x] 安裝 `@astrojs/mdx`，設定 `astro.config.mjs`（含 Shiki 雙主題）
+- [x] Content Collections
+  - [x] `src/content.config.ts` —— schema（title、description、order、sidebarLabel、lang、draft）
+  - [x] 自訂 `generateId`：去副檔名 + `index` 代表其目錄，id 第一段即 topic
+  - [x] 目錄結構 `src/content/docs/{topic}/…`
+  - [x] 四個主題：`typescript/`、`gsap/`、`ai-ml/`、`claude/`
+- [x] **URL 決策**：帶 topic 前綴 `/docs/{topic}/{slug}`，頁面只渲染單一主題
+- [x] 動態路由 `src/pages/docs/[...slug].astro`
+- [x] **純函式資料層**（build 期，可獨立測試，component 不參與計算）
+  - [x] `utils/nav.ts` —— `buildNavTree` 支援任意巢狀深度、`flattenNav`、`findSiblings`
+  - [x] `utils/toc.ts` —— `nestHeadings` 扁平轉巢狀、容忍層級跳躍
+  - [x] `utils/topics.ts` —— 主題註冊表
+- [x] **Layout 元件拆分**（按資料來源，非視覺區塊）
+  - [x] `DocLayout.astro` —— 純骨架，完全不碰資料，可被首頁複用
+  - [x] `SiteHeader.astro` —— 全站主題導航 + popover 開關
+  - [x] `DocSidebar.astro` —— 資料 → 視覺
+  - [x] `SidebarTree.astro` —— `Astro.self` 遞迴，純渲染
+  - [x] `DocToc.astro`
+  - [x] `PrevNext.astro`
+- [x] **版面留白 token**（`tokens.css` 2b 區塊，含三條比例規則）
+  - [x] 規則一：欄間距 ≥ 欄內距 × 2 —— 留白本身就是分隔線，全版面無直向邊框
+  - [x] 規則二：內文↔TOC 間距 > sidebar↔內文
+  - [x] 規則三：sidebar / TOC 錨定視窗邊緣，多餘寬度全給間距，內文由 `--main-max` 封頂置中
+  - [x] 全部以 `clamp()` 流動，不在斷點跳動
+- [x] **斷點由 measure 反推**（64rem / 80rem），推導過程記於 `tokens.css`
+- [x] 三個 grid 陷阱：`minmax(0, 1fr)`、`align-self: start`、full-bleed named lines
+- [x] 窄螢幕 sidebar 用 **Popover API**，零 JS
+- [x] TOC 中文標題 `-webkit-line-clamp: 2`
+- [x] 每個 topic 的 accent color（`styles/topics.css` 覆寫 12 個值，零 component 改動）
+- [x] 寫 9 篇真實中文文章驗證（含二層巢狀群組）
 
-**驗收**：純文字文章頁的 client JS 為 0；三個主題導航正常。
+**驗收**：
+- [x] `pnpm build` 通過，11 頁
+- [x] **client JS = 0**
+- [x] CSS 12.7KB（未壓縮傳輸），`@layer` 順序保留
+- [x] 巢狀群組、`aria-current`、popover、`data-topic` 皆正確輸出
+
+**回測修正**（第一輪人工測試後）：
+- [x] 深色模式程式碼區塊白底 —— Shiki `defaultColor: false` + `src/styles/code.css` 用 `light-dark()`
+- [x] 窄螢幕「目錄」按鈕直向斷行 —— `.nav-toggle` / `.brand` 加 `flex-shrink: 0`
+- [x] 大螢幕 sidebar 未貼邊 —— 移除 `max-inline-size: 90rem`，改由間距軌道吸收（規則三）
+- [x] 程式碼區塊雙層背景 —— `background-color` 誤套到 `span`；自訂屬性會繼承，
+      Shiki 的 `--shiki-*-bg` 只宣告在 `<pre>` 但 span 照樣拿得到，於是每個 token 各塗一層。
+      背景改為單一來源 `--color-bg-subtle`，不用 Shiki 主題底色
+- [x] 三欄視覺與留白
+- [x] 三個斷點（<64rem / 64–80rem / ≥80rem）與抽屜行為
+- [x] 深淺模式程式碼區塊渲染
 
 ---
 
@@ -76,13 +125,14 @@
 **注意**：Astro 已內建 GFM、smartypants、標題 ID 自動生成（github-slugger）—— 不需 `rehype-slug`。
 
 - [ ] 安裝 `rehype-autolink-headings`，設定標題錨點
+- [ ] 表格自動包上 `.table-wrapper`（`prose.css` 已備妥樣式，缺 rehype 外掛產生 wrapper）
 - [ ] 評估中英混排空白方案
   - [ ] 優先走 CSS `text-autospace`（階段一已做）
   - [ ] 若支援度不足，改為自訂 remark plugin（build 期插入細空格，跳過 code / 連結節點）
-- [ ] Shiki 設定（`markdown.shikiConfig`）：主題與 token 色彩對齊階段一
+- [x] ~~Shiki 設定~~ —— 已於階段二完成（雙主題 + `defaultColor: false`）
 - [ ] 視需要：閱讀時間、外部連結標記
 
-**驗收**：錨點連結可用；中英混排間距正確且不影響程式碼區塊。
+**驗收**：錨點連結可用；中英混排間距正確且不影響程式碼區塊；寬表格可橫向捲動而不撐破版面。
 
 ---
 
@@ -99,6 +149,7 @@
   - [ ] 字型與靜態資源總量
 - [ ] 接到 `package.json` 的 build script，超線即失敗
 - [ ] 以當前產物設定基準紅線並記錄
+- [ ] Scroll spy 作為獨立的 Web Component（<toc-highlight>）以 client:idle 載入
 - [ ] 寫入使用原則：**紅線調高必須在 commit message 說明理由**
 
 **驗收**：故意 import 一個大套件會導致 build 失敗。
@@ -187,6 +238,7 @@
 
 ## 後續（無明確順序）
 
+- [ ] **`<toc-highlight>` scroll spy** —— Web Component + IntersectionObserver（約 30 行），`client:idle`。**排在階段四閘門之後**，讓基準線建立在零 JS 的乾淨產物上，並能立刻量到它的真實代價
 - [ ] 中文字型分片子集化 —— `cn-font-split`，僅在排版規則到位且視覺確有需求時啟動（ADR [0004](adr/0004-cjk-font-strategy.md)）
 - [ ] Monaco —— 僅限 TypeScript 型別教學路由，動態 `import()`，需驗證 chunk 分離（ADR [0006](adr/0006-editor-codemirror.md)）
 - [ ] OG image 自動生成
