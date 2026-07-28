@@ -8,7 +8,8 @@
   },
   "scripts": {
     "dev": "astro dev",
-    "build": "astro build && node scripts/perf-budget.mjs",
+    "build": "astro build && pnpm search:index && node scripts/perf-budget.mjs",
+    "search:index": "pagefind --site dist && node scripts/prune-search-bundle.mjs",
     "perf": "node scripts/perf-budget.mjs",
     "preview": "astro preview",
     "astro": "astro"
@@ -21,5 +22,8 @@
     "rehype-autolink-headings": "^7.1.0",
     "remark-cjk-friendly": "^2.3.1",
     "unist-util-visit": "^5.1.0"
+  },
+  "devDependencies": {
+    "pagefind": "^1.5.2"
   }
 }
