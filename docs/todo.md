@@ -8,9 +8,12 @@
 
 ## 現況
 
-**階段一、二、三完成並通過人工驗證。** 下一步：階段四效能閘門 —— 此時產物最乾淨（client JS = 0），是設基準線的最佳時機，且必須擋在任何互動元件之前。
+**階段一至四完成並通過人工驗證。** 效能閘門已在零 JS 的乾淨產物上設好基準線，
+之後每次 `pnpm build` 都會擋。下一步建議先做 `<toc-highlight>` scroll spy ——
+它約 30 行、代價已知極小，是驗證閘門的最佳首發案例，比拿 GSAP 這種重量級的當首發安全得多。
 
 - `astro@^7.1.4` + `@astrojs/mdx@^7.0.4`（pnpm workspace）
+- 效能閘門：`scripts/perf-budget.mjs` + `perf-budget.config.json`，接在 `build` 之後
 - Markdown 管線：`remark-cjk-friendly`、`rehype-autolink-headings`、兩個自訂 rehype 外掛
 - 12 頁靜態產物，**client JS = 0**，CSS 約 14KB
 - 樣式：`index / reset / tokens / base / prose / code / doc-layout / topics`
@@ -175,23 +178,39 @@
 
 ---
 
-## 階段四：效能預算閘門 ⚠️
+## 階段四：效能預算閘門 ✅
 
 > ADR [0008](adr/0008-performance-budget-gate.md)
 
 **必須在任何互動元件之前完成。** 此時產物最乾淨，是設定基準線的最佳時機。
 
-- [ ] 寫 build 後檢查腳本（Node，約十幾行），驗證 `dist/`
-  - [ ] Global / 共用 chunk 的 JS 總量上限（核心防線）
-  - [ ] 單一 chunk 體積上限
-  - [ ] 每頁初始載入 JS 總量（純文章頁應趨近 0）
-  - [ ] 字型與靜態資源總量
-- [ ] 接到 `package.json` 的 build script，超線即失敗
-- [ ] 以當前產物設定基準紅線並記錄
-- [ ] Scroll spy 作為獨立的 Web Component（<toc-highlight>）以 client:idle 載入
-- [ ] 寫入使用原則：**紅線調高必須在 commit message 說明理由**
+- [x] `scripts/perf-budget.mjs` —— build 後檢查 `dist/`，零新依賴
+  - [x] 共用 chunk 的 JS 總量上限（核心防線）—— 定義為「被兩個以上頁面引用」，
+        亦即位在所有讀者都要付錢的路徑上
+  - [x] 單一 chunk 體積上限
+  - [x] 每頁初始載入 JS 總量 —— 只計 `<script src>` + inline script + `modulepreload`。
+        `client:visible` / `client:idle` 的元件走執行期 dynamic import，Astro 不發
+        modulepreload，因此自然不計入 —— 這正是要保護的性質，不是漏算
+  - [x] 字型與靜態資源總量
+  - [x] （計畫外）CSS 總量 —— 每階段驗收本來就在人工記錄這個數字，順手機器化
+- [x] 紅線抽到 `perf-budget.config.json`，與腳本分離 —— 讓調高紅線在 diff 裡
+      是獨立且顯眼的一行，「必須說明理由」這條原則才有著力點
+- [x] 接到 `package.json`：`astro build && node scripts/perf-budget.mjs`，超線即 exit 1
+      （另有 `pnpm perf` 可單獨執行）
+- [x] 以當前產物設定基準紅線並記錄於 config 的 `_baseline`
+- [x] 使用原則寫進 config 的 `_usage` 與失敗訊息：**紅線調高必須在 commit message 說明理由**，
+      預設反應是修正架構而非放寬閾值
 
-**驗收**：故意 import 一個大套件會導致 build 失敗。
+**基準線**（2026-07-28，12 頁）：JS 全數為 0 ｜ CSS 14226 B（gzip 4.2KB）｜ 靜態資源 1414 B（字型 0）
+
+**驗收**：
+- [x] 在 `SiteHeader`（12 頁共用）注入一個約 90KB 的 runtime 依賴 →
+      共用 JS／單一 chunk／單頁初始 JS 三條同時超線，build 以 exit 1 失敗
+- [x] 順帶驗到 Rollup 的 tree-shaking：同一份 payload 若只取 `.length`，
+      會被常數摺疊成 `console.log(900)` 而完全不進產物。閘門量的是**實際產物**，
+      不是 import 敘述 —— 這正是要的語意
+- [ ] `client:visible` 不計入初始 JS 的行為，待階段七第一個真實 island 出現時驗證
+      （目前無任何 island，無從構造案例）
 
 ---
 
@@ -209,11 +228,11 @@
 
 ---
 
-## 階段六：搜尋 🔶 待決定
+## 階段六：搜尋
 
-> ADR [0007](adr/0007-search-pagefind.md) —— **狀態：待決定，方案未定案前不動工**
+> ADR [0007](adr/0007-search-pagefind.md) 
 
-- [ ] 定案 ADR 0007
+- [x] 定案 ADR 0007
 - [ ] 若採用 Pagefind：
   - [ ] 安裝 `pagefind`，加入 `astro build` 之後的 pipeline
   - [ ] 驗證中文分詞召回率（先做這步再寫 UI）
@@ -223,26 +242,7 @@
 
 ---
 
-## 階段七：L3 控制變數面板（GSAP 主力）
-
-> ADR [0005](adr/0005-playground-tiers.md)、[0003](adr/0003-no-ui-framework.md)
-
-**刻意排在 L2 之前** —— 技術上簡單得多、對 GSAP 教學價值更高，且能先驗證 island 邊界設計是否成立。
-
-- [ ] 安裝 `gsap`
-- [ ] 建立第一個 Web Component（`customElements.define`，不使用 Shadow DOM 樣式隔離，讓 token 穿透）
-  - [ ] `<control-panel>` —— `<input type="range">` 群組，即改即看
-  - [ ] `<timeline-scrubber>` —— GSAP timeline 進度控制
-  - [ ] ease 曲線視覺化
-- [ ] 包成 Astro island，`client:visible`
-- [ ] 在 MDX 中直接使用，寫一篇 GSAP 文章驗證
-- [ ] 通過階段四閘門
-
-**驗收**：未使用該元件的頁面 JS 增量為 0；同頁多個實例互不干擾。
-
----
-
-## 階段八：L2 可執行 Playground
+## 階段七：L2 可執行 Playground
 
 > ADR [0005](adr/0005-playground-tiers.md)、[0006](adr/0006-editor-codemirror.md)
 
@@ -263,27 +263,72 @@
 
 ---
 
-## 階段九：L4 視覺化（AI/ML）
+## 階段八：L3 控制變數面板（GSAP 主力）
 
-> ADR [0005](adr/0005-playground-tiers.md)
+> ADR [0005](adr/0005-playground-tiers.md)、[0003](adr/0003-no-ui-framework.md)
 
-- [ ] 建立視覺化 Web Component（Canvas / SVG，複用 GSAP）
-  - [ ] 梯度下降動畫
-  - [ ] attention heatmap
-  - [ ] latent space 散點圖
-- [ ] 若確有執行需求，再評估 Pyodide（另開 ADR）
+**刻意排在 L2 之前** —— 技術上簡單得多、對 GSAP 教學價值更高，且能先驗證 island 邊界設計是否成立。
+
+- [ ] 安裝 `gsap`
+- [ ] 建立第一個 Web Component（`customElements.define`，不使用 Shadow DOM 樣式隔離，讓 token 穿透）
+  - [ ] `<control-panel>` —— `<input type="range">` 群組，即改即看
+  - [ ] `<timeline-scrubber>` —— GSAP timeline 進度控制
+  - [ ] ease 曲線視覺化
+- [ ] 包成 Astro island，`client:visible`
+- [ ] 在 MDX 中直接使用，寫一篇 GSAP 文章驗證
+- [ ] 通過階段四閘門
+
+**驗收**：未使用該元件的頁面 JS 增量為 0；同頁多個實例互不干擾。
 
 ---
 
 ## 後續（無明確順序）
 
-- [ ] **`<toc-highlight>` scroll spy** —— Web Component + IntersectionObserver（約 30 行），`client:idle`。**排在階段四閘門之後**，讓基準線建立在零 JS 的乾淨產物上，並能立刻量到它的真實代價
+- [ ] **`<toc-highlight>` scroll spy** —— Web Component + IntersectionObserver（約 30 行），`client:idle`。
+      **階段四閘門已完成，此項已解鎖**：基準線建立在零 JS 的乾淨產物上，因此它是全站第一筆 JS，
+      閘門會直接報出它的真實代價（而不是淹沒在既有 bundle 裡）。也是驗證
+      「`client:idle` 不計入單頁初始 JS」的第一個真實案例
 - [ ] 中文字型分片子集化 —— `cn-font-split`，僅在排版規則到位且視覺確有需求時啟動（ADR [0004](adr/0004-cjk-font-strategy.md)）
 - [ ] Monaco —— 僅限 TypeScript 型別教學路由，動態 `import()`，需驗證 chunk 分離（ADR [0006](adr/0006-editor-codemirror.md)）
 - [ ] OG image 自動生成
 - [ ] RSS / sitemap
 - [ ] 深色模式（token 已預留，需補切換 UI）
 - [ ] `class-variance-authority` —— 若 variant 複雜度上升再評估（build 期執行，client 零成本）
+
+---
+
+## 內容清單
+
+- [ ] Claude & Harness Engineer & Loop Engineer
+
+**TS**
+- [ ] TypeScript
+- [ ] Zod
+- [ ] Monorepo & Pnpm & Workspace
+
+**Frontend**
+- [ ] React
+- [ ] React Native
+- [ ] UI & Shadcn UI
+- [ ] GSAP & Web Animation
+
+**Backend**
+- [ ] Drizzle ORM
+      - [ ] Database Design & Schema
+      - [ ] Postgres Deep-Dive
+- [ ] API & GraphQL & gRPC
+- [ ] Authentication & BetterAuth
+- [ ] Fastify
+
+**Other**
+- [ ] Computer Science
+      - [ ] Network
+- [ ] Cybersecurity
+- [ ] LeetCode & DSA
+
+<!-- **Daily** -->
+<!-- - [ ] IELTS & English -->
+<!-- - [ ] Finance & Investment -->
 
 ---
 
