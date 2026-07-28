@@ -5,14 +5,14 @@
     "閘門失敗的預設反應是修正架構，而非放寬閾值。",
     "本檔與 scripts/perf-budget.mjs 分離，就是為了讓紅線變動在 diff 裡獨立且顯眼。"
   ],
-  "_baseline": "2026-07-28 / 階段三結束（12 頁）：JS 全數為 0，CSS 14226 B，靜態資源 1414 B（favicon，字型 0）。",
+  "_baseline": "2026-07-28 / 階段五結束（12 頁）：共用 JS 2523 B（EC 複製鈕），CSS 31628 B（自有 13954 + EC 17674），靜態資源 1414 B（favicon，字型 0）。前一版基準線為階段三結束：JS 全數為 0，CSS 14226 B。",
 
   "distDir": "dist",
 
   "budgets": {
     "sharedJs": {
       "limit": 8192,
-      "_": "被兩個以上頁面引用的 JS 總量。核心防線：重量級依賴洩漏進共用路徑會先撞到這條。基準線 0。"
+      "_": "被兩個以上頁面引用的 JS 總量。核心防線：重量級依賴洩漏進共用路徑會先撞到這條。階段五起為 2523 B —— astro-expressive-code 的複製鈕，全站 12 頁共用，是全站第一筆 client JS。上限維持 8192 未動。"
     },
     "singleChunk": {
       "limit": 51200,
@@ -20,15 +20,15 @@
     },
     "pageInitialJs": {
       "limit": 8192,
-      "_": "單一頁面初始載入的 JS（<script src> + inline script + modulepreload）。client:visible / client:idle 的元件不計入，因為那是執行期才抓的。純文章頁應趨近 0。基準線 0。"
+      "_": "單一頁面初始載入的 JS（<script src> + inline script + modulepreload）。client:visible / client:idle 的元件不計入，因為那是執行期才抓的。階段五起為 2523 B，且與共用 JS 是同一支 —— 有程式碼區塊的頁面就付這筆，沒有的頁面為 0。上限維持 8192 未動。"
     },
     "staticAssets": {
       "limit": 32768,
-      "_": "字型與靜態資源（字型、圖片、影音）總量。涵蓋 ADR 0004 中文字型的體積風險。基準線 15406 B，全為 favicon 等圖檔，字型 0。"
+      "_": "字型與靜態資源（字型、圖片、影音）總量。涵蓋 ADR 0004 中文字型的體積風險。基準線 1414 B，全為 favicon 等圖檔，字型 0。"
     },
     "css": {
-      "limit": 20480,
-      "_": "CSS 總量。不在 ADR 0008 的四條之列，但每個階段的驗收都在人工記錄這個數字，順手機器化。基準線 14226 B。"
+      "limit": 36864,
+      "_": "CSS 總量。不在 ADR 0008 的四條之列，但每個階段的驗收都在人工記錄這個數字，順手機器化。階段五由 20480 調高至 36864：astro-expressive-code 自帶 17674 B 樣式表（gzip 3898），是 ADR 0005 指定的 diff 標記／行高亮／檔名框／複製鈕這組功能的價格，非退化。已關閉 useThemedScrollbars 與 useThemedSelectionColors，其餘無可裁減項。調整後實際 31628 B，餘裕 5236 B —— 刻意留窄，讓階段六的搜尋 UI 若體積失控會立刻撞線。"
     }
   }
 }

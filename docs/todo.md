@@ -8,15 +8,21 @@
 
 ## 現況
 
-**階段一至四完成並通過人工驗證。** 效能閘門已在零 JS 的乾淨產物上設好基準線，
-之後每次 `pnpm build` 都會擋。下一步建議先做 `<toc-highlight>` scroll spy ——
-它約 30 行、代價已知極小，是驗證閘門的最佳首發案例，比拿 GSAP 這種重量級的當首發安全得多。
+**階段一至五完成並通過人工驗證**（階段五的行動裝置回測未做，待下次跨裝置驗收）。
+效能閘門在零 JS 的乾淨產物上設好基準線，之後每次 `pnpm build` 都會擋 ——
+階段五的 EC 複製鈕成為全站第一筆 client JS，代價（2523 B）由閘門直接報出，
+而非淹沒在既有 bundle 裡，這正是把閘門排在互動元件之前的兌現點。
 
-- `astro@^7.1.4` + `@astrojs/mdx@^7.0.4`（pnpm workspace）
+下一步建議 `<toc-highlight>` scroll spy —— 它約 30 行，且是驗證
+「`client:idle` 不計入單頁初始 JS」的第一個真實案例（EC 的 JS 是一般 `<script src>`，
+驗不到這一層）。
+
+- `astro@^7.1.4` + `@astrojs/mdx@^7.0.4` + `astro-expressive-code@^0.44.1`（pnpm workspace）
 - 效能閘門：`scripts/perf-budget.mjs` + `perf-budget.config.json`，接在 `build` 之後
 - Markdown 管線：`remark-cjk-friendly`、`rehype-autolink-headings`、兩個自訂 rehype 外掛
-- 12 頁靜態產物，**client JS = 0**，CSS 約 14KB
+- 12 頁靜態產物，**共用 client JS 2523 B**（EC 複製鈕），CSS 約 31KB（自有 14KB + EC 17KB）
 - 樣式：`index / reset / tokens / base / prose / code / doc-layout / topics`
+  （`code.css` 於階段五縮減為只剩一條 CJK 規則，視覺樣式改由 EC 的 `styleOverrides` 承擔）
 - 資料層：`utils/nav.ts`、`utils/toc.ts`、`utils/topics.ts`（皆為 build 期純函式）
 - 驗收頁：`/style-guide`（手寫 HTML，排版）、`/style-guide/markdown`（MDX，管線）
 - 四個主題：`typescript`（含二層巢狀）、`gsap`、`ai-ml`、`claude`
@@ -214,17 +220,57 @@
 
 ---
 
-## 階段五：L1 程式碼區塊
+## 階段五：L1 程式碼區塊 ✅
 
 > ADR [0005](adr/0005-playground-tiers.md)
 
-- [ ] 安裝 `astro-expressive-code`
-- [ ] 設定主題，色彩對齊階段一 token
-- [ ] 驗證功能：diff 標記、行高亮、檔名框、複製鈕
-- [ ] 確認 client JS 增量僅為複製鈕（極小）
-- [ ] 通過階段四閘門
+- [x] 安裝 `astro-expressive-code`（`0.44.1`，peer 已含 `astro ^7.0.0`）
+- [x] **整合順序陷阱**：`expressiveCode()` 必須排在 `mdx()` 之前。EC 以 remark 外掛
+      形式接管渲染，而 `mdx()` 初始化時就固定住當下的 markdown 設定 —— 排在後面
+      等於沒裝，`.md` 生效而 `.mdx` 靜默維持 Shiki 原樣，兩種副檔名產出不同標記
+- [x] 移除 `markdown.shikiConfig` —— Shiki 本身保留（是 Astro 與 EC 各自的內部依賴，
+      無從移除），換掉的是「誰來驅動它」。兩份主題設定並存只會讓人不知道哪份有效
+- [x] 設定主題，色彩對齊階段一 token
+  - [x] `styleOverrides` 吃 `var(--radius-3)` / `var(--font-code)` / `var(--space-4)` 等 token，
+        建置期不求值、原樣寫進 EC 自己的 `--ec-*` 變數，深淺切換仍由 `light-dark()` 負責
+  - [x] 延續階段二決策：`codeBackground` 用 `--color-bg-subtle` 而非 Shiki 主題自帶底色
+  - [x] 檔名框（`frames.editorActiveTabBackground`）必須跟著一起改，否則分頁與
+        程式碼區塊接縫處會有明顯色差
+  - [x] 關閉 `useThemedScrollbars` / `useThemedSelectionColors` —— 捲軸與選取色屬於
+        全站一致的系統行為，不該只有程式碼區塊特立獨行，順帶省下對應 CSS
+  - [x] UI 文字中文化 —— `pluginFramesTexts.overrideTexts("zh-Hant", …)`。
+        **EC 不讀 `<html lang>`**，必須同時設 `defaultLocale: "zh-Hant"` 才比對得到，
+        只覆寫文字會靜默失效
+- [x] **`all: revert` 的回測**（本階段最大的隱性退化）
+  - [x] EC 樣式表開頭有 `.expressive-code *:not(:is(svg, svg *)) { all: revert }`。
+        好處是 `prose.css` 的 `.prose pre` 完全漏不進去，那邊不需要任何例外
+  - [x] 但它同時把 `base.css` 為中文設的 `text-autospace: no-autospace` /
+        `text-spacing-trim: space-all` 一起清掉 —— 含中文註解的程式碼會重新吃到
+        全站規則，縮排與字串內容偏移。這是階段一決策的實質退化，且無任何錯誤訊息
+  - [x] 修法不是比特異性（EC 樣式表未分層，永遠贏過 `@layer`，且 `<link>` 在我們之後，
+        平手也是它贏），而是宣告在容器 `.expressive-code` 上 —— 它不被那條 `*` 選擇器
+        匹配，而 `all: revert` 對可繼承屬性的行為正是「回到繼承父層的值」，於是自然流下去
+  - [x] `src/styles/code.css` 因此從「Shiki 深淺主題切換」縮減為只剩這一條規則
+- [x] 驗證功能：檔名框、行高亮 `{4-6}`、`ins=` / `del=`、整段 `diff`、
+      終端機框 `frame="terminal"`、行內標記、複製鈕（`/style-guide/markdown`）
+- [x] 確認 client JS 增量僅為複製鈕 —— 2523 B，12 頁共用一支
+- [x] 通過階段四閘門（CSS 紅線調高，理由見下）
 
-**驗收**：全站 80% 以上的程式碼區塊由此層涵蓋。
+**閘門結果**：共用 JS 2523 B／8192 ｜ 單頁初始 JS 2523 B／8192 ｜ CSS 31628 B／36864（gzip 7.9KB）
+
+**紅線調整**：CSS 由 20480 調高至 36864。EC 自帶 17674 B 樣式表（gzip 3898），
+是 ADR 0005 指定的那組功能的價格而非退化；可關的選項都已關閉，其餘無可裁減項。
+餘裕刻意只留 5236 B，讓階段六的搜尋 UI 若體積失控會立刻撞線。
+**共用 JS 與單頁初始 JS 兩條上限未動** —— 2523 B 仍有 5669 B 餘裕。
+
+**驗收**：
+- [x] `pnpm build` 通過，12 頁
+- [x] 全站程式碼區塊 100% 由此層涵蓋（目前無任何 L2 以上需求）
+- [x] 中文註解在 `all: revert` 之後仍未被插入間距
+- [x] 深淺模式渲染
+- [x] 複製鈕實際點擊
+- [x] diff 標記與語法著色目測
+- [ ] 行動裝置 —— 未驗，併入下次跨裝置回測
 
 ---
 

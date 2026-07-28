@@ -54,6 +54,55 @@ const 設定 = { measure: "40em", leading: 1.8 } as const;
 type Axis = keyof typeof 設定;
 ```
 
+這一點在階段五特別值得盯：Expressive Code 的樣式表開頭有一條
+`all: revert`，會把 `base.css` 的反向關閉一併清掉。上面那段中文註解的
+縮排若出現偏移，代表 `code.css` 的容器繼承修法失效了。
+
+## 程式碼區塊：Expressive Code
+
+以下是 ADR 0005 的 L1 全部功能。四段都含中文，順帶驗證 CJK 在
+`all: revert` 之後仍未被插入間距。
+
+檔名框與行高亮：
+
+```ts title="src/utils/toc.ts" {4-6}
+export function nestHeadings(flat: Heading[]): TocNode[] {
+  const roots: TocNode[] = [];
+  const stack: TocNode[] = [];
+  // 容忍層級跳躍：h2 直接跳 h4 時不該丟失節點，
+  // 而是掛在當前最深的可用父節點下。
+  for (const heading of flat) attach(roots, stack, heading);
+  return roots;
+}
+```
+
+diff 標記（`ins` / `del` 與整段 `diff`）：
+
+```ts title="astro.config.mjs" ins={4} del={3}
+export default defineConfig({
+  // EC 必須排在 mdx() 之前，否則 .mdx 靜默維持 Shiki 原樣
+  integrations: [mdx(), expressiveCode()],
+  integrations: [expressiveCode(), mdx()],
+});
+```
+
+```diff lang="css"
+  .expressive-code {
+-   /* 跟 EC 比特異性是死路：它未分層，永遠贏過 @layer */
++   /* 宣告在容器上，靠 all: revert 對可繼承屬性的行為讓值流下去 */
+    text-autospace: no-autospace;
+    text-spacing-trim: space-all;
+  }
+```
+
+終端機框與行內標記（下方的 `astro-expressive-code` 會被框起來）：
+
+```bash frame="terminal" title="安裝與驗證" "astro-expressive-code"
+pnpm add astro-expressive-code
+# 裝完務必重跑閘門，CSS 那條會直接撞線
+pnpm build
+```
+
 ## 中英混排與標點
 
 這一段是 CSS `text-autospace` 的目測標的：使用 TypeScript 開發時，
