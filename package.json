@@ -17,6 +17,7 @@
     "@astrojs/markdown-remark": "^7.2.1",
     "@astrojs/mdx": "^7.0.4",
     "astro": "^7.1.4",
+    "astro-expressive-code": "^0.44.1",
     "rehype-autolink-headings": "^7.1.0",
     "remark-cjk-friendly": "^2.3.1",
     "unist-util-visit": "^5.1.0"

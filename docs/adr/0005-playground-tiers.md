@@ -21,8 +21,20 @@
 
 - **Shiki**（Astro 內建，無需安裝）+ **`astro-expressive-code`**
 - Expressive Code 包在 Shiki 外層，提供 diff 標記、行高亮、檔名框、複製鈕
-- **零 client JS**
+- **client JS 僅複製鈕，約 2.5KB，全站共用一支**（階段五實測後修正）
 - 這一級應涵蓋全站 80% 以上的程式碼區塊
+
+> **修正紀錄（2026-07-28，階段五實作）**：本節原寫「零 client JS」，不正確。
+> 複製鈕需要 clipboard 操作，必然有 client JS —— EC 為此送出一支 2523 B 的
+> module，被所有含程式碼區塊的頁面共用。這是全站第一筆 client JS。
+>
+> 保留複製鈕而非關閉它（`frames.showCopyToClipboardButton: false` 可退回真正的零 JS），
+> 理由是 2.5KB 換一個讀者高頻使用的功能，代價與收益不成比例地划算，且它由
+> [ADR 0008](0008-performance-budget-gate.md) 的閘門持續監看 —— 共用 JS 上限
+> 8192 B 未因此調高，仍有 5669 B 餘裕。
+>
+> 真正的成本不在 JS 而在 CSS：EC 自帶 17674 B 樣式表，使 CSS 紅線由
+> 20480 調高至 36864。詳見 `perf-budget.config.json`。
 
 ### L2 —— 可編輯 + 即時執行
 

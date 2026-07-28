@@ -1,47 +1,36 @@
 /**
- * Shiki 程式碼區塊的深淺主題切換
+ * 程式碼區塊：Expressive Code 沒有涵蓋的 CJK 規則
  *
- * astro.config.mjs 設定 defaultColor: false，因此 Shiki 只在標記上輸出
- * --shiki-light / --shiki-dark 兩組自訂屬性，不寫任何 inline 顏色。
- * 顏色的選擇在這裡完成，用的是與 tokens.css 色階同一套機制：light-dark()。
+ * 階段五之後，程式碼區塊的渲染由 astro-expressive-code 接管（ADR 0005 的 L1）。
+ * 容器的幾何、字體與顏色一律透過 astro.config.mjs 的 styleOverrides 指回 token，
+ * 因此本檔不再處理任何視覺樣式 —— 那是設定檔的職責，不是樣式表的。
  *
- * 這代表日後加上手動的深淺模式切換時（切換 color-scheme），
- * 程式碼區塊會自動跟著換，不需要任何額外處理。
- *
- * Phase 5 導入 astro-expressive-code 之後，本檔需重新檢視 ——
- * Expressive Code 會接管程式碼區塊的渲染。
+ * 本檔只剩一件 styleOverrides 做不到的事，說明如下。
  */
 
 @layer components {
-  /* 只有前景色套到 span。
-     背景色**絕對不可以**寫進 span 的規則 —— Shiki 只在 <pre> 上宣告
-     --shiki-*-bg，但自訂屬性會繼承，於是每個 span 都拿得到那個值，
-     結果是每一行、每一個 token 各自再塗一層不透明背景。 */
-  .astro-code,
-  .astro-code span {
-    color: light-dark(var(--shiki-light), var(--shiki-dark));
-  }
+  /* EC 的樣式表開頭有一條 `.expressive-code *:not(:is(svg, svg *)) { all: revert }`，
+     用意是讓程式碼區塊不受宿主網站的樣式干擾。這條規則很有效，效果之一是
+     prose.css 的 `.prose pre`（內距、邊框、底色）完全漏不進去 —— 所以那邊
+     不需要為 EC 加任何例外。
 
-  /* 背景刻意採用本站的表面色，而非 Shiki 主題自帶的底色。
-     程式碼區塊的邊框、圓角、內距都來自 prose.css 的設計系統，
-     底色若獨立於 token 之外，會在深色模式下與周圍表面對不齊。
-     語法色在略微不同的深灰上仍有足夠對比。 */
-  .astro-code {
-    background-color: var(--color-bg-subtle);
-  }
+     但它同時也把 base.css 為中文設的兩條規則一起 revert 掉了：
 
-  /* font-style 等非顏色屬性無法用 light-dark()，改以偏好查詢處理。
-     只影響註解的斜體，兩個主題差異極小。 */
-  @media (prefers-color-scheme: dark) {
-    .astro-code span {
-      font-style: var(--shiki-dark-font-style);
-      font-weight: var(--shiki-dark-font-weight);
-      text-decoration: var(--shiki-dark-text-decoration);
-    }
-  }
+       code, kbd, samp, pre { text-autospace: no-autospace;
+                              text-spacing-trim: space-all; }
 
-  /* 中文註解需要落在 CJK 字體上，且不套用中英自動間距（見 base.css） */
-  .astro-code {
-    font-family: var(--font-code);
+     這兩條在階段一是「反向關閉」—— 全站開啟中英自動間距與標點擠壓，唯獨
+     程式碼區塊要關掉，因為原始碼的空白具有語意，排版引擎不該擅自插入或
+     擠壓任何一格。被 revert 之後，含中文註解的程式碼會重新吃到全站規則，
+     縮排與字串內容會偏移。
+
+     修法不是去跟 EC 比特異性（它的樣式表未分層，永遠贏過 @layer，而且
+     link 位置在我們之後，連平手都是它贏），而是宣告在**容器自己身上**：
+     `.expressive-code` 不被那條 `*` 選擇器匹配，而 all: revert 對可繼承屬性
+     的效果正是「回到繼承父層的值」—— 於是這三條會自然流進每個後代。 */
+  .expressive-code {
+    text-autospace: no-autospace;
+    text-spacing-trim: space-all;
+    letter-spacing: 0;
   }
 }
