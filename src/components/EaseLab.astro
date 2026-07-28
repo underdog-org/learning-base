@@ -1,0 +1,371 @@
+---
+/**
+ * ease 實驗室（階段九，ADR 0005 L3）
+ *
+ * 「拖動一次滑桿、看曲線如何改變」—— gsap/index.mdx 寫下的那句承諾，
+ * 這是它的第一個兌現。
+ *
+ * 這份 frontmatter 在 **build 期**執行，因此可以放心 import gsap：
+ * frontmatter 的相依不會進 client bundle。用它把預設 ease 的曲線先求值
+ * 寫進 HTML，好處不只是無 JS 時仍看得到內容 ——
+ * **靜態圖與執行期動畫吃的是同一個 gsap.parseEase()**，不可能對不上。
+ * 自己重寫一份 easing 公式的話，那份「幾乎一樣」的曲線遲早會與真正的
+ * 動畫分岔，而且分岔時沒有任何錯誤訊息。
+ *
+ * 所有控制項在 HTML 裡就是真的 <select> 與 <input>，不是 JS 生出來的。
+ * 沒有 JS 時它們仍可聚焦、可用鍵盤操作，只是拖動不會有動畫 ——
+ * 而讀者要學的那條曲線已經在畫面上了。
+ */
+import { gsap } from "gsap";
+
+import { sampleEase, viewBoxOf } from "../utils/ease-curve";
+import {
+  DIRECTIONS,
+  FAMILIES,
+  defaultParams,
+  easeString,
+  familyOf,
+} from "../utils/ease-catalog";
+import { nextUid } from "../utils/uid";
+
+interface Props {
+  /** 初始 ease 家族，預設 power。 */
+  family?: string;
+  /** 初始方向，預設 out。 */
+  direction?: string;
+}
+
+const { family: familyId = "power", direction = "out" } = Astro.props;
+const family = familyOf(familyId);
+
+// 同一頁可以放多個實例，radio 的 name 必須各自獨立 —— 共用 name 的話，
+// 點第二個面板的方向會把第一個的選擇清掉。計數器不能寫在這裡，理由見
+// utils/uid.ts（frontmatter 每次渲染都重跑，區域變數會永遠回到 0）。
+const uid = nextUid("ease-lab");
+
+const initialEase = easeString(family.id, direction, defaultParams(family.id));
+const samples = sampleEase(gsap.parseEase(initialEase));
+
+// 所有 family 的 slider 都輸出到 HTML，由 CSS 依 data-family 決定誰顯示。
+// JS 因此完全不需要建立節點 —— 見 src/scripts/ease-lab.ts 頂部。
+const allParams = FAMILIES.flatMap((f) =>
+  f.params.map((param) => ({ owner: f.id, param })),
+);
+---
+
+<ease-lab data-family={family.id} data-uid={uid}>
+  <div class="ease-stage">
+    {/* 曲線。x 是進度、y 是 ease 的輸出，座標系在 <g> 上翻成螢幕方向 ——
+        翻轉留在這裡，utils/ease-curve.ts 才能維持數學慣例。 */}
+    <svg
+      class="ease-curve"
+      data-role="curve"
+      viewBox={viewBoxOf(samples)}
+      role="img"
+      aria-label="ease 曲線圖，橫軸為時間進度，縱軸為動畫進度"
+    >
+      <g transform="scale(1, -1)">
+        <line class="ease-axis" x1="0" y1="0" x2="1" y2="0"></line>
+        <line class="ease-axis" x1="0" y1="1" x2="1" y2="1"></line>
+        <path class="ease-path" data-role="path" d={samples.d}></path>
+        {/* 圓點只有在元件升級後才會動；靜態時停在起點，看起來就是曲線的端點。 */}
+        <circle class="ease-dot" data-role="dot" cx="0" cy="0" r="0.028"></circle>
+      </g>
+    </svg>
+
+    {/* 預覽軌道。方塊吃的位置與圓點是同一次求值，見 #render()。 */}
+    <div class="ease-track" data-role="track" aria-hidden="true">
+      <div class="ease-box" data-role="box"></div>
+    </div>
+  </div>
+
+  <div class="ease-readout">
+    <output class="ease-string" data-role="ease">{initialEase}</output>
+    <button class="ease-btn" data-role="copy" type="button">複製</button>
+    <button class="ease-btn" data-role="play" type="button">播放</button>
+  </div>
+
+  <div class="ease-controls">
+    <p class="ease-hint" data-role="hint">{family.hint}</p>
+
+    <label class="ease-field">
+      <span class="ease-label">家族</span>
+      <select data-role="family">
+        {
+          FAMILIES.map((f) => (
+            <option value={f.id} selected={f.id === family.id}>
+              {f.label}
+            </option>
+          ))
+        }
+      </select>
+    </label>
+
+    <fieldset class="ease-field ease-directions">
+      <legend class="ease-label">方向</legend>
+      {
+        DIRECTIONS.map((d) => (
+          <label class="ease-direction">
+            <input
+              type="radio"
+              name={`direction-${uid}`}
+              value={d.id}
+              checked={d.id === direction}
+            />
+            <span>{d.label}</span>
+          </label>
+        ))
+      }
+    </fieldset>
+
+    {
+      allParams.map(({ owner, param }) => (
+        <label class="ease-field ease-param" data-owner={owner}>
+          <span class="ease-label">{param.label}</span>
+          <input
+            type="range"
+            name={param.key}
+            min={param.min}
+            max={param.max}
+            step={param.step}
+            value={param.value}
+          />
+        </label>
+      ))
+    }
+  </div>
+</ease-lab>
+
+<script>
+  /**
+   * ease 實驗室的載入器。這段（而非元件本體）是唯一會進共用 bundle 的部分。
+   *
+   * 與 <toc-highlight> 的載入器不同，這裡用 IntersectionObserver 而不是
+   * requestIdleCallback —— 這是 client:visible 的手工版（本專案沒有 UI
+   * framework renderer，Astro 的 client:* 一律不可用，理由見 ADR 0003 與
+   * src/scripts/toc-highlight.ts）。
+   *
+   * 兩者做法不同是因為成本量級不同：<toc-highlight> 是 834 B，閒置時抓完
+   * 沒什麼好省的；這裡連 gsap 一起是 70 KB 以上，讀者還沒捲到 demo 就抓
+   * 是實實在在的浪費。
+   *
+   * rootMargin 提前 200px 觸發，讓元件在進入視窗前就升級完成 ——
+   * 讀者捲到時看到的是可操作的面板，而不是一塊正在變成面板的東西。
+   *
+   * 一頁多個實例只會 import 一次：第一個相交就 disconnect，而模組登錄表
+   * 本身也會去重。
+   */
+  const labs = document.querySelectorAll("ease-lab");
+
+  if (labs.length > 0) {
+    const observer = new IntersectionObserver(
+      (entries, self) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        self.disconnect();
+        import("../scripts/ease-lab");
+      },
+      { rootMargin: "200px" },
+    );
+
+    for (const lab of labs) observer.observe(lab);
+  }
+</script>
+
+<style>
+  @layer components {
+    ease-lab {
+      display: grid;
+      gap: var(--space-4);
+      margin-block: var(--space-6);
+      padding: var(--space-4);
+      border: 1px solid var(--color-border-subtle);
+      border-radius: var(--radius-3);
+      background-color: var(--color-bg-subtle);
+    }
+
+    .ease-stage {
+      display: grid;
+      gap: var(--space-4);
+    }
+
+    @media (min-width: 40rem) {
+      .ease-stage {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        align-items: center;
+      }
+    }
+
+    .ease-curve {
+      inline-size: 100%;
+      /* viewBox 的比例隨 overshoot 變動，但方框維持正方 —— preserveAspectRatio
+         的預設值（xMidYMid meet）會把曲線置中縮放，圓點因此不會被拉扁。 */
+      aspect-ratio: 1;
+      max-block-size: 14rem;
+      border: 1px solid var(--color-border-subtle);
+      border-radius: var(--radius-2);
+      background-color: var(--color-bg);
+    }
+
+    .ease-axis {
+      stroke: var(--color-border);
+      stroke-width: 1;
+      /* 曲線的座標單位約為 1，直接給 stroke-width 會粗到蓋掉整張圖。 */
+      vector-effect: non-scaling-stroke;
+      stroke-dasharray: 3 3;
+    }
+
+    .ease-path {
+      fill: none;
+      stroke: var(--color-accent-solid);
+      stroke-width: 2;
+      stroke-linecap: round;
+      vector-effect: non-scaling-stroke;
+    }
+
+    .ease-dot {
+      fill: var(--color-accent-solid);
+    }
+
+    .ease-track {
+      display: flex;
+      align-items: center;
+      padding: var(--space-2);
+      border: 1px solid var(--color-border-subtle);
+      border-radius: var(--radius-2);
+      background-color: var(--color-bg);
+    }
+
+    .ease-box {
+      inline-size: 2.5rem;
+      block-size: 2.5rem;
+      border-radius: var(--radius-2);
+      background-color: var(--color-accent-solid);
+    }
+
+    .ease-readout {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: var(--space-2);
+    }
+
+    .ease-string {
+      flex: 1 1 auto;
+      padding: var(--space-2) var(--space-3);
+      border-radius: var(--radius-2);
+      background-color: var(--color-bg);
+      font-family: var(--font-code);
+      font-size: 0.9em;
+      color: var(--color-text);
+      /* 程式碼字串不該吃中英混排的自動間距（與 code.css 同一個理由）。 */
+      text-autospace: no-autospace;
+      text-spacing-trim: space-all;
+    }
+
+    .ease-btn {
+      padding: var(--space-2) var(--space-3);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-2);
+      background-color: var(--color-surface);
+      font: inherit;
+      font-size: var(--text-xs);
+      color: var(--color-text-muted);
+      cursor: pointer;
+    }
+
+    .ease-btn:hover {
+      border-color: var(--color-accent-border);
+      color: var(--color-text);
+    }
+
+    .ease-btn[data-copied="true"]::after {
+      content: "　已複製";
+      color: var(--color-accent-solid);
+    }
+
+    /* 播放鈕在元件升級前沒有任何作用 —— 一顆按下去沒反應的按鈕比沒有
+       按鈕更糟（階段六的搜尋按鈕教訓）。曲線與參數在升級前仍完整可讀，
+       所以只藏這一顆，不藏整個元件。 */
+    ease-lab:not([data-ready]) .ease-btn[data-role="play"] {
+      display: none;
+    }
+
+    .ease-controls {
+      display: grid;
+      gap: var(--space-3);
+    }
+
+    @media (min-width: 40rem) {
+      .ease-controls {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        align-items: end;
+      }
+
+      .ease-hint {
+        grid-column: 1 / -1;
+      }
+    }
+
+    .ease-hint {
+      margin: 0;
+      font-size: var(--text-xs);
+      color: var(--color-text-muted);
+    }
+
+    .ease-field {
+      display: grid;
+      gap: var(--space-1);
+      border: 0;
+      padding: 0;
+      margin: 0;
+    }
+
+    .ease-label {
+      font-size: var(--text-xs);
+      font-weight: var(--weight-bold);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--color-text-subtle);
+    }
+
+    .ease-directions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-3);
+      align-items: center;
+    }
+
+    .ease-direction {
+      display: flex;
+      align-items: center;
+      gap: var(--space-1);
+      font-family: var(--font-code);
+      font-size: 0.9em;
+    }
+
+    .ease-field select,
+    .ease-field input[type="range"] {
+      inline-size: 100%;
+      font: inherit;
+      accent-color: var(--color-accent-solid);
+    }
+
+    /* slider 的顯示與隱藏純由 data-family 決定，JS 只負責搬那個屬性。
+       只有三個 family 帶參數，因此逐條列出比任何通用機制都清楚。 */
+    .ease-param {
+      display: none;
+    }
+
+    /* none 沒有方向之分（直線的 in / out / inOut 是同一條線）。
+       留著三顆按了不會有任何變化的 radio，比不顯示它們更難理解。 */
+    ease-lab[data-family="none"] .ease-directions {
+      display: none;
+    }
+
+    ease-lab[data-family="power"] .ease-param[data-owner="power"],
+    ease-lab[data-family="back"] .ease-param[data-owner="back"],
+    ease-lab[data-family="elastic"] .ease-param[data-owner="elastic"] {
+      display: grid;
+    }
+  }
+</style>

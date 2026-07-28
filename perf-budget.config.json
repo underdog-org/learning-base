@@ -27,7 +27,8 @@
       },
       "singleChunk": {
         "limit": 51200,
-        "_": "單一 JS chunk 上限。偵測意外的依賴合併（例如 barrel file 把整個 editor 拉進同一個 chunk）。基準線 0。階段六起排除 dist/pagefind/ —— 那是第三方執行期，計入的話「最大單一 chunk」會永遠指向 pagefind.js（45555 B，佔 89%），這條檢查就再也回答不了「我們自己的程式碼有沒有意外合併」這個問題。搜尋 bundle 改由 onDemand.searchRuntime 涵蓋。"
+        "_": "單一 JS chunk 上限。偵測意外的依賴合併（例如 barrel file 把整個 editor 拉進同一個 chunk）。基準線 0。階段六起排除 dist/pagefind/ —— 那是第三方執行期，計入的話「最大單一 chunk」會永遠指向 pagefind.js（45555 B，佔 89%），這條檢查就再也回答不了「我們自己的程式碼有沒有意外合併」這個問題。搜尋 bundle 改由 onDemand.searchRuntime 涵蓋。階段九起同理排除 gsap chunk（71 KB，本身就超過本條上限），改由 onDemand.gsapRuntime 涵蓋。",
+        "_exclusions": "排除的依據必須是穩定且看得見的識別方式，不能是「哪支比較大」或某個雜湊檔名 —— 那種判定會在下次 build 悄悄失準，而失準的方向是靜默通過。pagefind 靠自己的目錄，gsap 靠 astro.config.mjs 的 manualChunks 給的具名前綴。"
       },
       "pageInitialJs": {
         "limit": 8192,
@@ -38,9 +39,10 @@
         "_": "字型與靜態資源（字型、圖片、影音）總量。涵蓋 ADR 0004 中文字型的體積風險。基準線 1414 B，全為 favicon 等圖檔，字型 0。"
       },
       "cssCacheable": {
-        "limit": 53248,
+        "limit": 61440,
         "_": "外部樣式表總量（HTML 實際以 <link rel=stylesheet> 引用者）。跨頁快取，一次站內瀏覽最多付一次；文檔站的主場景是站內導覽，因此這是攤提成本，紅線可相對寬鬆。取全部外部檔的總和而非單頁量 —— 讀者逛完整站終究會抓齊，這是那個上界。基準線 48067 B / 7 支（ec 17674 + BaseLayout 16976 + DocLayout 4800 + 4 支頁面級 scoped 共 8617）。階段七採用 inlineStylesheets: \"never\" 後，原本內嵌在 12 份 HTML 裡的 scoped 區塊全數落到這條，因此餘裕只留 5181 B —— 之後每個新元件的 scoped CSS 都會直接記在這裡，成長比先前快，紅線要撞得到才有意義。",
-        "_why_limit": "由 45056 調高至 53248，是 inlineStylesheets: \"never\" 的連帶調整而非放寬：同一批 bytes 從 pageInlineCss 那條搬過來（最貴單頁首次載入維持 42.3 KB 不變），而 pageInlineCss 的上限同時由 6144 收到 0。兩條合起來看是收緊。"
+        "_why_limit": "階段七由 45056 調高至 53248，是 inlineStylesheets: \"never\" 的連帶調整而非放寬：同一批 bytes 從 pageInlineCss 那條搬過來（最貴單頁首次載入維持 42.3 KB 不變），而 pageInlineCss 的上限同時由 6144 收到 0。兩條合起來看是收緊。",
+        "_why_limit_9": "階段九由 53248 調高至 61440。這一次是真的放寬，不是搬移 —— <EaseLab> 的 scoped CSS 是 3876 B 的新增成本，實測由 49334 B 漲到 53210 B，距離舊上限只剩 38 B。那 38 B 是本條真正的問題所在：閘門會顯示「✓ 100%」而它其實已經失去偵測能力，下一條 CSS 規則就會讓 build 失敗，而失敗的原因與當時那次變更無關。這正是上一段預告過的成長（採用 \"never\" 之後，每個新元件的 scoped CSS 都直接記在這條），因此調高是預期中的事件而非意外。新上限留約 8 KB 餘裕，約當再兩個同規模的元件；階段十的 CodeMirror UI 應該落在這個範圍內，若不夠那會是一次要單獨說明的調整。同一輪刻意**不動** pageInitialJs（7987 / 8192，餘裕 205 B）—— 它還沒撞線，而那條是全站最核心的防線，餘裕本身就是下一個 island 載入器的預算。"
       },
       "pageInlineCss": {
         "limit": 0,
@@ -56,6 +58,12 @@
         "_": "延後載入的自有元件總量，定義為「沒有任何頁面在初始載入時抓它」—— HTML 沒有引用，且不在任何被引用 chunk 的靜態 import 圖上。那正是延後載入的可觀測特徵：載入器在執行期才 import()，因此沒有任何東西在載入當下指向它。階段八起為 <toc-highlight>（834 B）。撞線時第一個要問的不是「該調高嗎」而是「它還是按需的嗎」：元件若不小心變成靜態 import，會從這條消失並同時出現在 sharedJs，兩邊的數字會一起動。",
         "_why": "這條是**底網**而非清單。ADR 0008 要求「每一項排除都必須同時開一條屬於自己的紅線」，但那條規則靠人記得，而忘記開的下場是那筆體積永遠不會失敗 —— 這個站已經被「看不到與不存在長得一樣」騙過一次（階段六補：閘門量錯目錄，回報 0 B 與全數通過）。有了底網，新元件不開專屬紅線也不會消失，它會自動落在這裡；大型套件另開專屬紅線後再從這裡扣除（腳本的 COVERED_BY_OWN_LINE）。",
         "_limit_why": "上限 8192 與 sharedJs 同數量級，基準線約 1 KB。這條量的是「我們自己寫的按需元件」，第三方執行期（Pagefind、未來的 gsap / CodeMirror）一律扣除到各自的紅線去 —— 否則一支 200KB 的套件會讓這個訊號完全讀不出來，那正是 singleChunk 排除 pagefind 的同一個理由。"
+      },
+      "gsapRuntime": {
+        "limit": 81920,
+        "_": "gsap 執行期（astro.config.mjs 的 manualChunks 切出的具名 chunk）。ADR 0005 的 L3 控制變數面板用它，只有捲到 <ease-lab> 的讀者才會抓 —— 沒有任何 HTML 引用它，載入靠 EaseLab.astro 那段 IntersectionObserver 載入器。基準線約 71 KB（gsap 3.15.0 的 core + CSSPlugin）。",
+        "_why_not_tree_shaken": "實測 core 幾乎不可 tree-shake：只用 gsap.to() 與只用滿的體積相同（71.7 KB min / 28.3 KB gzip）。gsap/gsap-core 可省下 19 KB，代價是不能動任何 CSS 屬性，對這個用途不成立。所以這條的基準線就是 gsap 的地板價，不是我們用了多少的函數。",
+        "_limit_why": "餘裕約 10 KB，只夠吸收 gsap 小幅升版。這是刻意設緊的：加 ScrollTrigger 是 +45 KB（實測 gsap+ScrollTrigger 共 116.7 KB），會直接撞線 —— 那應該是一個要在 commit message 交代的決定，而不是悄悄多出來的 45 KB。撞線時第一個要問的仍是「它還是按需的嗎」：gsap 若不小心被靜態 import 進某個 entry，它會從這裡消失並出現在 sharedJs，兩邊的數字會同時動。"
       },
       "searchRuntime": {
         "limit": 163840,

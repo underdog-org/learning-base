@@ -53,7 +53,7 @@ class TocHighlight extends HTMLElement {
 
     // 頁尾補償，見 #update() 的 atBottom。
     //
-    // scrollend 而非 scroll：一次捲動手勢只發一次，不是每一帧。這是全站唯一
+    // scrollend 而非 scroll：一次捲動手勢只發一次，不是每一幀。這是全站唯一
     // 與捲動有關的 JS，成本必須是常數級 —— 捲動進度條之所以走純 CSS
     // （animation-timeline，跑在合成器執行緒）就是同一個理由。
     // 舊版 Safari 沒有 scrollend，那裡就只是少了頁尾補償，其餘照常運作。
@@ -90,7 +90,7 @@ class TocHighlight extends HTMLElement {
    * 瞬間最模糊的問題；改成收到通知後重讀所有標題的位置，問題就消失了。
    *
    * 代價是每次 callback 讀 N 次 rect（N = 標題數，約 5–15）。callback 只在
-   * 有標題越線時發生、不是每一帧，而 IO callback 執行時版面已經算好，
+   * 有標題越線時發生、不是每一幀，而 IO callback 執行時版面已經算好，
    * 這些讀取不會觸發額外的 reflow。
    */
   #update() {
