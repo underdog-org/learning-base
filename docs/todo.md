@@ -228,11 +228,11 @@
 
 ---
 
-## 階段六：搜尋 🔶 待決定
+## 階段六：搜尋
 
-> ADR [0007](adr/0007-search-pagefind.md) —— **狀態：待決定，方案未定案前不動工**
+> ADR [0007](adr/0007-search-pagefind.md) 
 
-- [ ] 定案 ADR 0007
+- [x] 定案 ADR 0007
 - [ ] 若採用 Pagefind：
   - [ ] 安裝 `pagefind`，加入 `astro build` 之後的 pipeline
   - [ ] 驗證中文分詞召回率（先做這步再寫 UI）
@@ -242,26 +242,7 @@
 
 ---
 
-## 階段七：L3 控制變數面板（GSAP 主力）
-
-> ADR [0005](adr/0005-playground-tiers.md)、[0003](adr/0003-no-ui-framework.md)
-
-**刻意排在 L2 之前** —— 技術上簡單得多、對 GSAP 教學價值更高，且能先驗證 island 邊界設計是否成立。
-
-- [ ] 安裝 `gsap`
-- [ ] 建立第一個 Web Component（`customElements.define`，不使用 Shadow DOM 樣式隔離，讓 token 穿透）
-  - [ ] `<control-panel>` —— `<input type="range">` 群組，即改即看
-  - [ ] `<timeline-scrubber>` —— GSAP timeline 進度控制
-  - [ ] ease 曲線視覺化
-- [ ] 包成 Astro island，`client:visible`
-- [ ] 在 MDX 中直接使用，寫一篇 GSAP 文章驗證
-- [ ] 通過階段四閘門
-
-**驗收**：未使用該元件的頁面 JS 增量為 0；同頁多個實例互不干擾。
-
----
-
-## 階段八：L2 可執行 Playground
+## 階段七：L2 可執行 Playground
 
 > ADR [0005](adr/0005-playground-tiers.md)、[0006](adr/0006-editor-codemirror.md)
 
@@ -282,6 +263,25 @@
 
 ---
 
+## 階段八：L3 控制變數面板（GSAP 主力）
+
+> ADR [0005](adr/0005-playground-tiers.md)、[0003](adr/0003-no-ui-framework.md)
+
+**刻意排在 L2 之前** —— 技術上簡單得多、對 GSAP 教學價值更高，且能先驗證 island 邊界設計是否成立。
+
+- [ ] 安裝 `gsap`
+- [ ] 建立第一個 Web Component（`customElements.define`，不使用 Shadow DOM 樣式隔離，讓 token 穿透）
+  - [ ] `<control-panel>` —— `<input type="range">` 群組，即改即看
+  - [ ] `<timeline-scrubber>` —— GSAP timeline 進度控制
+  - [ ] ease 曲線視覺化
+- [ ] 包成 Astro island，`client:visible`
+- [ ] 在 MDX 中直接使用，寫一篇 GSAP 文章驗證
+- [ ] 通過階段四閘門
+
+**驗收**：未使用該元件的頁面 JS 增量為 0；同頁多個實例互不干擾。
+
+---
+
 ## 後續（無明確順序）
 
 - [ ] **`<toc-highlight>` scroll spy** —— Web Component + IntersectionObserver（約 30 行），`client:idle`。
@@ -294,6 +294,41 @@
 - [ ] RSS / sitemap
 - [ ] 深色模式（token 已預留，需補切換 UI）
 - [ ] `class-variance-authority` —— 若 variant 複雜度上升再評估（build 期執行，client 零成本）
+
+---
+
+## 內容清單
+
+- [ ] Claude & Harness Engineer & Loop Engineer
+
+**TS**
+- [ ] TypeScript
+- [ ] Zod
+- [ ] Monorepo & Pnpm & Workspace
+
+**Frontend**
+- [ ] React
+- [ ] React Native
+- [ ] UI & Shadcn UI
+- [ ] GSAP & Web Animation
+
+**Backend**
+- [ ] Drizzle ORM
+      - [ ] Database Design & Schema
+      - [ ] Postgres Deep-Dive
+- [ ] API & GraphQL & gRPC
+- [ ] Authentication & BetterAuth
+- [ ] Fastify
+
+**Other**
+- [ ] Computer Science
+      - [ ] Network
+- [ ] Cybersecurity
+- [ ] LeetCode & DSA
+
+<!-- **Daily** -->
+<!-- - [ ] IELTS & English -->
+<!-- - [ ] Finance & Investment -->
 
 ---
 
