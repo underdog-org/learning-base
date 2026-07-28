@@ -784,7 +784,7 @@ commit message 交代的決定，而不是悄悄多出來的 45 KB。
 - [ ] 停用 JS：靜態曲線仍在、控制項可鍵盤操作、無版面跳動
 - [ ] `back` / `elastic` 的 overshoot 未被 viewBox 裁掉
 - [ ] `prefers-reduced-motion` 下不自動重播
-- [ ] 深淺模式、行動裝置、複製鈕實際點擊
+- [x] 深淺模式、行動裝置、複製鈕實際點擊
 
 ---
 
