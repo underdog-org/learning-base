@@ -51,7 +51,7 @@ try {
   entries = readdirSync(bundleDir, { withFileTypes: true });
 } catch {
   console.error(
-    `\n找不到 ${bundleDir}/ —— 請先執行 pagefind --site dist\n`,
+    `\n找不到 ${bundleDir}/ —— 請先執行 pnpm search:index（pagefind --site dist/client）\n`,
   );
   process.exit(1);
 }

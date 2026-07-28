@@ -83,6 +83,8 @@
   type PagefindApi = {
     search: (q: string) => Promise<{ results: PagefindResult[] }>;
     options?: (o: Record<string, unknown>) => Promise<void>;
+    /** 釋放 wasm 與索引狀態，讓下一次呼叫重新初始化。 */
+    destroy?: () => Promise<void>;
   };
   type PagefindResult = { data: () => Promise<PagefindData> };
   type PagefindData = {
@@ -157,6 +159,7 @@
         this.#input.value = "";
         this.#list.replaceChildren();
         this.#status.textContent = "";
+        this.#resetIfFailed();
       });
 
       document.addEventListener("keydown", (e) => {
@@ -188,15 +191,37 @@
           this.#pagefind = mod;
           return mod;
         } catch {
-          // 最常見的情況不是壞掉，而是 astro dev —— 索引只在 build 期產生，
-          // dev 伺服器上 /pagefind/ 是 404。講清楚，不要只說「搜尋失敗」。
-          this.#status.textContent =
-            "搜尋索引尚未建置。開發模式請執行 pnpm build && pnpm preview。";
+          // 訊息必須分兩種對象講。dev 模式下 /pagefind/ 必然是 404（索引
+          // 只在 build 期產生），該看到訊息的是開發者；但同一句話在
+          // production 出現時，是在對讀者說開發者的話 —— 讀者既跑不了
+          // pnpm build，也不需要知道這個站是怎麼建的。
+          // production 這句刻意不指定復原動作。「關閉後重新開啟」是我們的
+          // 實作細節（#loading 在 close 事件上失效），而它不保證有效 ——
+          // 失敗的那次回應若被瀏覽器或 CDN 快取住，重開拿到的還是同一份
+          // 404。承諾一個做不到的動作，比不給動作更傷信任；而讀者遇到
+          // 這種事的直覺（重新整理）本來就是更強的復原手段。
+          this.#status.textContent = import.meta.env.DEV
+            ? "搜尋索引尚未建置。開發模式請執行 pnpm build && pnpm preview。"
+            : "搜尋暫時無法使用，請稍後再試，或重新整理頁面。";
           return null;
         }
       })();
 
       return this.#loading;
+    }
+
+    /**
+     * 讓下一次打開重新載入 Pagefind。
+     *
+     * 失敗的 promise 會被 #loading 快取住，這對 dev 模式的 404 是刻意的
+     * ——否則每按一個鍵就重打一次必然失敗的請求。但快取若永不失效，
+     * production 上一次暫時性的網路失敗就會讓搜尋在這個頁面的餘生都不能用。
+     *
+     * 折衷點放在「關閉再打開」：符合讀者遇到怪事時的直覺，重試頻率也從
+     * 每次按鍵降到每次重開。已經載入成功的模組不丟棄。
+     */
+    #resetIfFailed() {
+      if (!this.#pagefind) this.#loading = null;
     }
 
     #schedule() {
@@ -222,15 +247,54 @@
       // 每次查詢帶一個序號，回來時若已不是最新的就丟棄 ——
       // 網路與索引分片的回應順序不保證與送出順序相同。
       const seq = ++this.#seq;
-      const { results } = await pagefind.search(query);
-      if (seq !== this.#seq) return;
 
-      const pages = await Promise.all(
-        results.slice(0, MAX_PAGES).map((r) => r.data()),
-      );
-      if (seq !== this.#seq) return;
+      // search() 與 data() 都會抓 wasm 與索引分片，都可能失敗，而
+      // #schedule() 是以 void this.#run() 呼叫的 —— 沒有這個 catch，
+      // 例外會變成沒人接的 unhandled rejection，連錯誤都不會有人看到。
+      //
+      // 注意 #load() 的 try 只包得住 import()。若 pagefind.js 載入成功
+      // 但 wasm 或分片抓不到（例如 scripts/prune-search-bundle.mjs 的
+      // 保留清單哪天失準），例外就會落在這裡而不是那裡。
+      try {
+        const { results } = await pagefind.search(query);
+        if (seq !== this.#seq) return;
 
-      this.#render(pages, query, results.length);
+        const pages = await Promise.all(
+          results.slice(0, MAX_PAGES).map((r) => r.data()),
+        );
+        if (seq !== this.#seq) return;
+
+        this.#render(pages, query, results.length);
+      } catch {
+        if (seq !== this.#seq) return;
+
+        // 清空是這裡的重點，不是那句訊息。留著上一次查詢的結果、
+        // 而輸入框顯示的是新的查詢字串，讀者看到的不是「壞了」，
+        // 是「這個詞的結果是這些」—— 錯得比空白更糟。
+        this.#list.replaceChildren();
+        this.#status.textContent = "搜尋暫時無法使用，請稍後再試，或重新整理頁面。";
+
+        // 文案不提「關閉後重新開啟」，但下面的重置仍然做 —— 兩者是不同
+        // 的事：重置讓重開真的會重試（實質行為），文案則是我們對讀者
+        // 承諾的強度。做得到就做，但不保證的事不寫進承諾裡。
+        //
+        // 必須呼叫 destroy() 才是真的重試。
+        //
+        // 這裡踩過一次坑：原本只把 #pagefind 與 #loading 設回 null，
+        // 以為下次 import() 會重新載入。但動態 import 回傳的是瀏覽器
+        // 模組登錄表裡的「同一個」實例（實測 m === m2 為 true），
+        // Pagefind 已經初始化壞掉的 wasm 與索引狀態原封不動 ——
+        // 重開對話框只會再失敗一次，而錯誤訊息卻叫讀者重試。
+        //
+        // destroy() 釋放那份狀態，下次呼叫才會真的重新初始化。
+        try {
+          await this.#pagefind?.destroy?.();
+        } catch {
+          // destroy 自己失敗也不能讓這條錯誤處理路徑再拋一次例外。
+        }
+        this.#pagefind = null;
+        this.#loading = null;
+      }
     }
 
     #render(pages: PagefindData[], query: string, total: number) {

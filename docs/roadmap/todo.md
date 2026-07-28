@@ -15,21 +15,31 @@
 （Pagefind 無條件產出的預設 UI），兩次都是由閘門而非人工發現，這正是把閘門排在
 互動元件之前的兌現點。
 
+**但閘門本身也會壞，而且壞得沒有聲音** —— Cloudflare adapter 把產物移到 `dist/client/`
+之後，閘門有一段時間量的是不存在的路徑，回報 `0 B` 與「全數通過」。經過見「階段六補」。
+以下所有數字都是修正之後的。
+
 **下一步有兩個候選，建議先做後者**：
 
 - `<toc-highlight>` scroll spy —— 約 30 行，是驗證「`client:idle` 不計入單頁初始 JS」的
   第一個真實案例（EC 與搜尋的 JS 都是一般 `<script src>`，驗不到這一層）
-- **先修 `css` 這條紅線的量測語意**（見階段六末的待決事項）。目前它顯示 99%，
-  但那個數字把 12 份內嵌副本算成 0、把 1 份共用檔算成全額 —— 在不知道真實餘裕的情況下
-  加任何新元件，都會是在對著錯的數字做決定
+- ~~先修 `css` 這條紅線的量測語意~~ —— **已結案**（見階段六「已結案：`css` 這條紅線
+  量錯了東西」），拆成 `cssCacheable` + `pageInlineCss` 兩條
+- **先補上 `dist/server/` 的閘門盲區檢查**（見階段六補的待辦）。理由與上面那條 `css`
+  是同一個：在閘門可能靜默量不到東西的情況下加新元件，是在對著錯的數字做決定。
+  這次的版本更糟 —— `css` 至少報了一個「錯的數字」，adapter 那次報的是 `0 B` 與「全數通過」
 
 - `astro@^7.1.4` + `@astrojs/mdx@^7.0.4` + `astro-expressive-code@^0.44.1` + `pagefind@1.5.2`
-- 效能閘門：`scripts/perf-budget.mjs` + `perf-budget.config.json`，接在 `build` 之後
-- 搜尋：`pnpm search:index`（`pagefind --site dist` + `scripts/prune-search-bundle.mjs`），
-  夾在建置與閘門之間
+- 部署：`@astrojs/cloudflare@^14.1.5` + `wrangler` —— 目前所有路由皆預渲染，
+  `dist/server/` 為空，adapter 實際只負責產物佈局（`dist/client/`）
+- 效能閘門：`scripts/perf-budget.mjs` + `perf-budget.config.json`（`distDir: "dist/client"`），
+  接在 `build` 之後
+- 搜尋：`pnpm search:index`（`pagefind --site dist/client` + `scripts/prune-search-bundle.mjs`），
+  夾在建置與閘門之間。**`dist/client` 而非 `dist`** —— Cloudflare adapter 的產物位置，理由見階段六補
 - Markdown 管線：`remark-cjk-friendly`、`rehype-autolink-headings`、兩個自訂 rehype 外掛
-- 12 頁靜態產物（索引 9 頁），**共用 client JS 6.6KB**（EC 複製鈕 2.5 + 搜尋 4.2），
-  CSS 35.5KB，另有按需載入的 Pagefind 執行期 151KB + 索引 21KB
+- 12 頁靜態產物（索引 9 頁），**共用 client JS 6.9KB**（EC 複製鈕 2.5 + 搜尋 4.5），
+  外部 CSS 38.5KB，另有按需載入的 Pagefind 執行期 151KB + 索引 21KB
+  —— 以上為階段六補修正閘門目錄後的數字，此前閘門讀到的是 0
 - 樣式：`index / reset / tokens / base / prose / code / doc-layout / topics`
   （`code.css` 於階段五縮減為只剩一條 CJK 規則，視覺樣式改由 EC 的 `styleOverrides` 承擔）
 - 資料層：`utils/nav.ts`、`utils/toc.ts`、`utils/topics.ts`（皆為 build 期純函式）
@@ -370,6 +380,10 @@
 **紅線未動。** 共用 JS 到 83%。（原本記錄的「CSS 已到 99%」是虛的 —— 見下方已結案的
 待決事項，那條指標量錯了東西。重新定義後為外部 81%、內嵌 63%。）
 
+> **上面這組數字是在閘門指向 `dist` 的期間記錄的，僅存作階段六當下的紀錄。**
+> 加上 Cloudflare adapter 之後，由頁面反推的三條會讀成 0 —— 見「階段六補」。
+> 修正後的當前數字：共用 JS 6.9KB／8.0（87%）、外部 CSS 38.5KB／44.0（88%）。
+
 **已結案：`css` 這條紅線量錯了東西。** Astro 的 `inlineStylesheets: "auto"` 會把小於
 4KB 的 scoped CSS 直接內嵌進每一份 HTML，而閘門只加總 `.css` 檔案 —— 內嵌的部分
 完全不在統計內。階段六加入 SiteSearch 後 scoped CSS 越過 4KB 門檻、由內嵌轉為外部檔，
@@ -414,6 +428,61 @@ config 註解與閘門的失敗訊息裡。另加一行**不設閘的診斷**輸
   與文檔站的側寫相反。唯一的代價是首屏多一個請求。
   採用的話 `cssCacheable` 需同步調高（43.9 KB 會貼在 44.0 KB 上限），那是重新定義的
   連帶調整而非放寬，理由須寫進 commit message。
+
+---
+
+## 階段六補：Cloudflare adapter 讓兩件事靜默壞掉 ✅（另留一項待辦）
+
+> 起因：`@astrojs/cloudflare` 把靜態產物從 `dist/` 移到 `dist/client/`（`dist/server/` 是 worker）。
+> adapter 本身沒問題 —— 目前所有路由都預渲染，`dist/server/` 是空的。問題是**兩個依賴
+> 「產物在 `dist/` 根目錄」的既有假設沒有跟著改**，而兩者壞掉的方式都不會有錯誤訊息。
+
+**這一節的共同主題是「失敗看起來跟成功一樣」。** 階段六已經有五個無錯誤訊息的坑，
+這裡再加兩個，但性質更糟：前五個至少「畫面上看得出不對」，這兩個是**綠燈的謊**。
+
+- [x] **搜尋在 production 會 404**（部署後才會發生，本機 `pnpm preview` 也照不到）
+  - [x] Pagefind 寫到 `dist/pagefind/`，Cloudflare 服務的是 `dist/client/` ——
+        `/pagefind/pagefind.js` 在線上根本不存在
+  - [x] 降級機制**運作正常**，讀者會如實看到「搜尋暫時無法使用」——
+        也就是說錯誤處理沒壞，是搜尋永遠不會成功。這正是它難被發現的原因：
+        沒有例外、沒有紅字，只有一句設計好的訊息
+  - [x] 改為 `pagefind --site dist/client`，`prune-search-bundle.mjs` 收 `dist/client/pagefind` 參數
+- [x] **效能閘門在量錯的目錄，而且報綠燈**（比上一條嚴重）
+  - [x] `byUrl` 以 `dist` 為基準算 key，得到 `/client/_astro/…`，而頁面裡寫的是 `/_astro/…`，
+        對不上。所有**由頁面反推**的檢查（共用 JS、單頁初始 JS、外部 CSS）全部讀成 0
+  - [x] 輸出是 `✓ 0 B / 8.0 KB 0%` 與「全數通過」—— 沒有任何一行說「我沒找到東西」。
+        零與通過在報告裡長得跟「乾淨」一模一樣，而這個站的前四個階段**真的**是 0 B，
+        誤導性因此加倍
+  - [x] 改 `distDir: "dist/client"` 後數字回來：共用 JS 6.9KB、外部 CSS 38.5KB
+  - [x] `_distDir` / `_distDir_gap` 兩條註記寫進 config，記錄病灶與下述盲區
+
+- [ ] **待辦：讓 `dist/server/` 的盲區發得出聲。** 目前 `distDir` 指向 client 沒有漏掉
+      任何東西（server 為空），但哪天出現 on-demand 路由，worker 的 JS 就完全不在閘門
+      視野內 —— 而且是**靜默地**不在：閘門不會變紅，只是繼續回報 client 的數字並通過。
+      修法不是把 `distDir` 改回 `dist`（會重現上面的 key 對不上），而是在
+      `scripts/perf-budget.mjs` 前置檢查 `dist/server/` 是否出現 `.js`，有就直接失敗並
+      說明原因。**在那之前，擋在盲區前面的只有一條 JSON 註解 —— 註解擋不住，只能提醒。**
+
+**同一輪一併處理的三件事**（來自 Review，與 adapter 無關）：
+
+- [x] `#run()` 補 try/catch。`#load()` 的 try 只包得住 `import()`，若 pagefind.js 載入成功
+      但 wasm 或索引分片抓不到，例外會落在 `#run()` —— 而它是以 `void this.#run()` 呼叫的，
+      沒有 catch 就變成沒人接的 unhandled rejection。**重點是清空結果**：留著上一次查詢的
+      結果、而輸入框是新的查詢字串，讀者看到的不是「壞了」而是「這個詞的結果是這些」
+- [x] 失敗後真的能重試 —— 必須呼叫 `pagefind.destroy()`。第一版修法（把 `#pagefind`
+      與 `#loading` 設回 `null`）是**錯的**：動態 `import()` 回傳的是瀏覽器模組登錄表裡的
+      同一個實例（實測 `m === m2` 為 `true`），Pagefind 已經壞掉的內部狀態原封不動，
+      重開只會再失敗一次。`destroy()` 釋放那份狀態，下次呼叫才會重新初始化
+- [x] 錯誤文案改為「搜尋暫時無法使用，請稍後再試，或重新整理頁面。」
+      —— 原本的「請關閉後重新開啟再試一次」承諾了一個**不保證成立**的動作：失敗那次的
+      回應若被瀏覽器或 CDN 快取住，`destroy()` 也救不回來（實測時就以 `invalid gzip data`
+      的形式撞到過）。而且「關閉再打開」是我們的實作細節（`#loading` 在 close 事件上失效），
+      讀者的直覺「重新整理」本來就是更強的復原手段。
+      **`destroy()` 保留不動** —— 重置是實質行為，文案是承諾強度，兩者不必一致
+
+**端到端驗證**（`dist/client` 靜態伺服，真實滑鼠與鍵盤，非只用 JS 驅動）：
+移走 `dist/client/pagefind/fragment/` 構造「import 成功、但分片抓不到」→ 結果清空並顯示
+新文案 → 還原 → Esc 關閉 → 重新打開 → 搜「動畫」得 4 筆結果與 `<mark>` 標記。
 
 ---
 

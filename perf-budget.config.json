@@ -8,7 +8,9 @@
   "_baseline": "2026-07-28 / 階段六（12 頁）：共用 JS 2523 B（EC 複製鈕），外部 CSS 36356 B，單頁內嵌 CSS 最大 3853 B，靜態資源 1414 B（favicon，字型 0）。CSS 兩條為重新定義後的新基準線，與階段五的「CSS 總量 31628 B」不可比較，理由見 budgets.pageInlineCss._why。",
   "_css_model": "CSS 分兩條而非一條總量：文檔站的主場景是站內導覽（讀者連看好幾篇），外部檔快取後只付一次，內嵌則每次導覽重付。兩者成長曲線不同、修法也不同，加總成一個數字就無法歸因。首次到訪的合計成本（內嵌 + 該頁外部檔）由腳本以「診斷」形式輸出，不設閘。",
 
-  "distDir": "dist",
+  "_distDir": "Cloudflare adapter 把靜態產物放在 dist/client/，dist/server/ 是 worker。閘門必須指向 client —— 指向 dist 的話，頁面裡的 /_astro/… 對不上以 dist 為基準算出的 /client/_astro/…，所有由頁面反推的檢查（共用 JS、單頁初始 JS、外部 CSS）會全部讀成 0 並回報「全數通過」。這個 bug 實際發生過，而它最危險的地方不是量錯，是量錯時看起來跟一切正常一模一樣：綠燈、0 B、0%，沒有任何一行輸出說「我沒找到東西」。",
+  "_distDir_gap": "已知盲區，同樣是靜默的：目前所有路由都預渲染，dist/server/ 為空，指向 client 沒有漏掉任何東西。但哪天出現 on-demand 路由，worker 的 JS 就完全不在閘門視野內 —— 閘門不會變紅，也不會警告，它只是繼續回報 client 那邊的數字並通過。屆時的修法不是把 distDir 改回 dist（那會重現上面的 key 對不上問題），而是讓腳本明確認知兩個目錄：client 走現有的「由頁面反推」路徑，server 另外量。在那之前，這條註記是唯一擋在盲區前面的東西 —— 它擋不住，只能提醒。",
+  "distDir": "dist/client",
 
   "budgets": {
     "sharedJs": {
