@@ -29,6 +29,15 @@
 
 以下約束由多份 ADR 共同支撐，任何新增元件都必須遵守：
 
-- **所有 editor 與重量級互動元件一律是 Astro island + `client:visible`，永遠不進 global bundle。**
+- **所有 editor 與重量級互動元件一律是 Astro island，禁用 `client:load`，永遠不進 global bundle。**
+  預設 `client:visible`；不改變版面、不承載內容的輕量增強元件可用 `client:idle`。
 - **同一頁面永遠不出現兩套 editor engine。**
 - **樣式 token 必須區分中西兩軸，語言切換透過 `:lang()` 而非 class。**
+
+## 修訂紀錄
+
+| 日期 | 涉及 ADR | 內容 |
+|---|---|---|
+| 2026-07-28 | [0003](0003-no-ui-framework.md)、[0005](0005-playground-tiers.md)、[0008](0008-performance-budget-gate.md) | 第一條鐵則原寫死 `client:visible`，是把手段寫成目的 —— 真正要禁的是 `client:load`，`client:idle` 同樣不進初始載入路徑。已改為禁用式措辭 |
+| 2026-07-28 | [0005](0005-playground-tiers.md) | 建置順序的判準由「L3 先於 L2」改為「依 island 複雜度遞增地驗證邊界」，並補上先行的最小 island。同時修正 `docs/roadmap/todo.md` 中編號與內文互相否定的矛盾 |
+| 2026-07-28 | [0008](0008-performance-budget-gate.md) | 紅線分為「人人都付」與「按需才付」兩類。階段六為 Pagefind 做的特例升格為規則，避免 CodeMirror 進場時重新臨時決定 |

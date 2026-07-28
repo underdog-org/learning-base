@@ -43,9 +43,15 @@ Web Components 的心智模型與 Astro island 完全一致 —— 自帶狀態�
 
 ## 鐵則
 
-> **所有 editor 與重量級互動元件一律是 Astro island + `client:visible`，永遠不進 global bundle。**
+> **所有 editor 與重量級互動元件一律是 Astro island，禁用 `client:load`，永遠不進 global bundle。**
+> 預設 `client:visible`；不改變版面、不承載內容的輕量增強元件可用 `client:idle`。
 
 此鐵則由 [ADR 0008](0008-performance-budget-gate.md) 的自動化閘門保障，不依賴人工遵守。
+
+> **修訂紀錄（2026-07-28）**：原文寫死 `client:visible`。那是把手段寫成了目的 ——
+> 真正要禁的是 `client:load`（它會進初始載入路徑），而 `client:idle` 同樣走執行期
+> dynamic import、同樣不計入單頁初始 JS，卻在原措辭下嚴格讀來是違規。
+> `<toc-highlight>` 這類純增強元件正是被誤傷的案例。
 
 ## 已評估的替代方案
 
