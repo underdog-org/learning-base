@@ -118,6 +118,14 @@ export default defineConfig({
           properties: (node) => ({
             className: ["heading-anchor"],
             ariaLabelledBy: node.properties.id,
+            // 錨點的 # 是視覺工具，不是標題的一部分。不排除的話，
+            // Pagefind 會把它算進標題文字，搜尋結果的章節標題全都
+            // 變成「名稱不重要 #」（ADR 0007）。
+            //
+            // 值必須是 "all"（或 "index"）而非 true —— hast 會把布林值
+            // 輸出成 data-pagefind-ignore="true"，那不是 Pagefind 認得的
+            // scope，會被忽略而靜默失效。
+            "data-pagefind-ignore": "all",
           }),
           // # 對螢幕閱讀器沒有意義，藏起來；名稱由上面的 aria-labelledby 提供。
           content: {

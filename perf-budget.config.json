@@ -5,9 +5,12 @@
     "閘門失敗的預設反應是修正架構，而非放寬閾值。",
     "本檔與 scripts/perf-budget.mjs 分離，就是為了讓紅線變動在 diff 裡獨立且顯眼。"
   ],
-  "_baseline": "2026-07-28 / 階段五結束（12 頁）：共用 JS 2523 B（EC 複製鈕），CSS 31628 B（自有 13954 + EC 17674），靜態資源 1414 B（favicon，字型 0）。前一版基準線為階段三結束：JS 全數為 0，CSS 14226 B。",
+  "_baseline": "2026-07-28 / 階段六（12 頁）：共用 JS 2523 B（EC 複製鈕），外部 CSS 36356 B，單頁內嵌 CSS 最大 3853 B，靜態資源 1414 B（favicon，字型 0）。CSS 兩條為重新定義後的新基準線，與階段五的「CSS 總量 31628 B」不可比較，理由見 budgets.pageInlineCss._why。",
+  "_css_model": "CSS 分兩條而非一條總量：文檔站的主場景是站內導覽（讀者連看好幾篇），外部檔快取後只付一次，內嵌則每次導覽重付。兩者成長曲線不同、修法也不同，加總成一個數字就無法歸因。首次到訪的合計成本（內嵌 + 該頁外部檔）由腳本以「診斷」形式輸出，不設閘。",
 
-  "distDir": "dist",
+  "_distDir": "Cloudflare adapter 把靜態產物放在 dist/client/，dist/server/ 是 worker。閘門必須指向 client —— 指向 dist 的話，頁面裡的 /_astro/… 對不上以 dist 為基準算出的 /client/_astro/…，所有由頁面反推的檢查（共用 JS、單頁初始 JS、外部 CSS）會全部讀成 0 並回報「全數通過」。這個 bug 實際發生過，而它最危險的地方不是量錯，是量錯時看起來跟一切正常一模一樣：綠燈、0 B、0%，沒有任何一行輸出說「我沒找到東西」。",
+  "_distDir_gap": "已知盲區，同樣是靜默的：目前所有路由都預渲染，dist/server/ 為空，指向 client 沒有漏掉任何東西。但哪天出現 on-demand 路由，worker 的 JS 就完全不在閘門視野內 —— 閘門不會變紅，也不會警告，它只是繼續回報 client 那邊的數字並通過。屆時的修法不是把 distDir 改回 dist（那會重現上面的 key 對不上問題），而是讓腳本明確認知兩個目錄：client 走現有的「由頁面反推」路徑，server 另外量。在那之前，這條註記是唯一擋在盲區前面的東西 —— 它擋不住，只能提醒。",
+  "distDir": "dist/client",
 
   "budgets": {
     "sharedJs": {
@@ -16,19 +19,32 @@
     },
     "singleChunk": {
       "limit": 51200,
-      "_": "單一 JS chunk 上限。偵測意外的依賴合併（例如 barrel file 把整個 editor 拉進同一個 chunk）。基準線 0。"
+      "_": "單一 JS chunk 上限。偵測意外的依賴合併（例如 barrel file 把整個 editor 拉進同一個 chunk）。基準線 0。階段六起排除 dist/pagefind/ —— 那是第三方執行期，計入的話「最大單一 chunk」會永遠指向 pagefind.js（45555 B，佔 89%），這條檢查就再也回答不了「我們自己的程式碼有沒有意外合併」這個問題。搜尋 bundle 改由 searchRuntime 涵蓋。"
     },
     "pageInitialJs": {
       "limit": 8192,
       "_": "單一頁面初始載入的 JS（<script src> + inline script + modulepreload）。client:visible / client:idle 的元件不計入，因為那是執行期才抓的。階段五起為 2523 B，且與共用 JS 是同一支 —— 有程式碼區塊的頁面就付這筆，沒有的頁面為 0。上限維持 8192 未動。"
     },
+    "searchRuntime": {
+      "limit": 163840,
+      "_": "Pagefind 執行期（pagefind.js + pagefind-worker.js + wasm）。ADR 0007。體積由 Pagefind 版本決定，只有升版會變動，基準線 155009 B。這條是回歸測試而非預算：Pagefind CLI 無條件產出三套不使用的預設 UI（234KB JS + 63KB CSS），由 scripts/prune-search-bundle.mjs 刪除；刪除清單一旦失準，這裡會立刻爆掉。餘裕 8831 B 只夠吸收小幅升版差異，這是刻意的。注意這些檔案不進 sharedJs / singleChunk —— 它們是執行期 dynamic import，沒有任何 HTML 引用。"
+    },
+    "searchIndex": {
+      "limit": 131072,
+      "_": "Pagefind 索引分片（fragment/ + index/ + meta）。ADR 0007。全站唯一隨內容線性成長的產物 —— 其餘數字都由程式碼決定，只有這條由「寫了幾篇文章」決定。基準線 21536 B / 9 頁 / 784 詞，約每頁 2.4KB。上限設在 128KB，約當 50 篇文章，屆時應檢討的是索引範圍與分片策略，而不是直接調高。撞這條線不代表架構退化，這點與其他各條不同。"
+    },
     "staticAssets": {
       "limit": 32768,
       "_": "字型與靜態資源（字型、圖片、影音）總量。涵蓋 ADR 0004 中文字型的體積風險。基準線 1414 B，全為 favicon 等圖檔，字型 0。"
     },
-    "css": {
-      "limit": 36864,
-      "_": "CSS 總量。不在 ADR 0008 的四條之列，但每個階段的驗收都在人工記錄這個數字，順手機器化。階段五由 20480 調高至 36864：astro-expressive-code 自帶 17674 B 樣式表（gzip 3898），是 ADR 0005 指定的 diff 標記／行高亮／檔名框／複製鈕這組功能的價格，非退化。已關閉 useThemedScrollbars 與 useThemedSelectionColors，其餘無可裁減項。調整後實際 31628 B，餘裕 5236 B —— 刻意留窄，讓階段六的搜尋 UI 若體積失控會立刻撞線。"
+    "cssCacheable": {
+      "limit": 45056,
+      "_": "外部樣式表總量（HTML 實際以 <link rel=stylesheet> 引用者）。跨頁快取，一次站內瀏覽最多付一次；文檔站的主場景是站內導覽，因此這是攤提成本，紅線可相對寬鬆。取全部外部檔的總和而非單頁量 —— 讀者逛完整站終究會抓齊，這是那個上界。基準線 36356 B（自有 13954 + DocLayout 4728 + expressive-code 17674）。"
+    },
+    "pageInlineCss": {
+      "limit": 6144,
+      "_": "單一頁面內嵌 <style> 的最大值。無法快取，每一次頁面導覽都重付，會被瀏覽頁數乘上去 —— 在站內導覽為主的側寫下，這才是真正的 CSS 成本，因此紅線刻意設緊（基準線 3853 B，餘裕 2291 B，大約只夠再多一個小型 scoped 區塊）。撞線的正確反應是把 astro.config.mjs 的 inlineStylesheets 改為 \"never\"，讓這些 bytes 移進 cssCacheable，而非調高本條。",
+      "_why": "取代原本的 css（CSS 總量）。舊指標只加總 .css 檔案，看不見 Astro inlineStylesheets: \"auto\" 內嵌進每份 HTML 的部分（實測內嵌 39441 B 比外部 36356 B 還多），因此會把「12 份內嵌副本收斂成 1 份共用外部檔」報成退化 —— 實際送出量減少 6.7KB，閘門卻報增加 4.6KB。舊指標等於在獎勵把 CSS 複製 12 份塞進 HTML。新舊數字不可直接比較：36864 是舊定義下的總量上限，這裡兩條是重新定義後的兩種成本，不是放寬。"
     }
   }
 }

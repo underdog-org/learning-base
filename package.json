@@ -8,7 +8,8 @@
   },
   "scripts": {
     "dev": "astro dev",
-    "build": "astro build && node scripts/perf-budget.mjs",
+    "build": "astro build && pnpm search:index && node scripts/perf-budget.mjs",
+    "search:index": "pagefind --site dist/client && node scripts/prune-search-bundle.mjs dist/client/pagefind",
     "perf": "node scripts/perf-budget.mjs",
     "preview": "pnpm --filter learning-base... run build && wrangler dev",
     "astro": "astro",
@@ -26,6 +27,7 @@
     "unist-util-visit": "^5.1.0"
   },
   "devDependencies": {
-    "wrangler": "^4.114.0"
+    "wrangler": "^4.114.0",
+    "pagefind": "^1.5.2"
   }
 }

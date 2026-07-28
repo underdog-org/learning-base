@@ -21,7 +21,7 @@
 | [0004](0004-cjk-font-strategy.md) | 中文字型：系統字型優先，分片子集化為後備 | 已接受 |
 | [0005](0005-playground-tiers.md) | Playground 分為 L1–L4 四級，不以單一方案通吃 | 已接受 |
 | [0006](0006-editor-codemirror.md) | Editor 採用 CodeMirror 6，延後 Monaco | 已接受 |
-| [0007](0007-search-pagefind.md) | 搜尋採用 Pagefind | **待決定** |
+| [0007](0007-search-pagefind.md) | 搜尋採用 Pagefind | 已接受 |
 | [0008](0008-performance-budget-gate.md) | 建立效能預算閘門 | 已接受 |
 | [0009](0009-cjk-latin-spacing.md) | 中英混排空白交由 CSS，暫緩自訂外掛 | 已接受 |
 

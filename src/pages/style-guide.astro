@@ -50,7 +50,10 @@ const tsSample = `interface Token<T extends string> {
   title="Style Guide — learning-base"
   description="Phase 1 排版驗收：token 體系與 CJK 排版規則"
 >
-  <div class="page">
+  {/* 驗收頁不是內容。此頁走 BaseLayout，本來就沒有 data-pagefind-body，
+      按 Pagefind 的規則已自動排除 —— 這裡明寫是為了讓意圖留在程式碼裡，
+      而不是靠「剛好沒標記」生效。見 DocLayout 的 searchable prop。 */}
+  <div class="page" data-pagefind-ignore="all">
     <header class="page-header">
       <h1>Style Guide</h1>
       <p class="lede">

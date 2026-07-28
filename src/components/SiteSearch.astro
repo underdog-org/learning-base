@@ -1,0 +1,591 @@
+---
+/**
+ * 站內搜尋（ADR 0007）。
+ *
+ * 自建 UI，不使用 @pagefind/default-ui —— 後者自帶樣式，與 ADR 0002 的
+ * token 體系衝突，而搜尋框是讀者高頻接觸的元件，值得自己控制。
+ *
+ * 三個載入層次，各自的代價不同：
+ *   1. HTML —— 每頁都有，但只是一顆按鈕與一個空的 <dialog>，零成本
+ *   2. 元件 JS —— 進共用 bundle（12 頁共用一支），必須小
+ *   3. Pagefind 執行期（pagefind.js + worker + wasm + 索引，約 176KB）
+ *      —— 只在讀者第一次打開搜尋時才 import，沒用到搜尋的人一個位元組都不付
+ *
+ * 第 3 層是這個元件存在的全部理由。它走執行期 dynamic import，Astro 不會
+ * 為它發 modulepreload，因此不計入單頁初始 JS —— 見 ADR 0008 的閘門定義。
+ */
+---
+
+<site-search>
+  {/* 沒有 JS 就沒有搜尋，因此按鈕在元件升級前不顯示 ——
+      一顆按下去沒反應的按鈕比沒有按鈕更糟。 */}
+  <button class="search-trigger" type="button" aria-haspopup="dialog">
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.6"
+      aria-hidden="true"
+    >
+      <circle cx="7" cy="7" r="4.5"></circle>
+      <path d="M10.5 10.5L14 14" stroke-linecap="round"></path>
+    </svg>
+    <span class="search-trigger__label">搜尋</span>
+    <kbd class="search-trigger__key" aria-hidden="true">⌘K</kbd>
+  </button>
+
+  {/* 原生 <dialog> + showModal()：焦點陷阱、Esc 關閉、inert 背景、
+      ::backdrop 全部由瀏覽器負責，這些自己實作都很容易做錯。 */}
+  <dialog class="search-dialog" aria-label="站內搜尋">
+    <div class="search-box">
+      <svg
+        class="search-box__icon"
+        width="16"
+        height="16"
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.6"
+        aria-hidden="true"
+      >
+        <circle cx="7" cy="7" r="4.5"></circle>
+        <path d="M10.5 10.5L14 14" stroke-linecap="round"></path>
+      </svg>
+      {/* 刻意用 type="text" 而非 type="search"：後者的瀏覽器原生行為會
+          攔截 Esc 拿去清空自己的內容，鍵盤事件因此傳不到 <dialog>，
+          Esc 就關不掉對話框了 —— 而且第一次按下去看起來「有反應」
+          （輸入框清空），很容易被當成正常行為。 */}
+      <input
+        class="search-input"
+        type="text"
+        enterkeyhint="search"
+        placeholder="搜尋文章…"
+        aria-label="搜尋關鍵字"
+        autocomplete="off"
+        spellcheck="false"
+      />
+      <button class="search-close" type="button" aria-label="關閉搜尋">Esc</button>
+    </div>
+
+    {/* role="status" 讓結果筆數與狀態變化被螢幕閱讀器讀出。
+        結果本身是一串真實連結，方向鍵移動的是真的焦點 ——
+        不用 aria-activedescendant，省下的不只是程式碼，還有出錯的機會。 */}
+    <p class="search-status" role="status"></p>
+    <ul class="search-results"></ul>
+  </dialog>
+</site-search>
+
+<script>
+  // Pagefind 的型別不在建置流程裡（它是產物而非依賴），因此這裡的
+  // 回傳值一律當作未知結構處理，只取用實際會用到的欄位。
+  type PagefindApi = {
+    search: (q: string) => Promise<{ results: PagefindResult[] }>;
+    options?: (o: Record<string, unknown>) => Promise<void>;
+    /** 釋放 wasm 與索引狀態，讓下一次呼叫重新初始化。 */
+    destroy?: () => Promise<void>;
+  };
+  type PagefindResult = { data: () => Promise<PagefindData> };
+  type PagefindData = {
+    url: string;
+    excerpt: string;
+    meta?: { title?: string };
+    sub_results?: { title: string; url: string; excerpt: string }[];
+  };
+
+  // 中文查詢在少於兩個字時必然是雜訊 —— 實測「中」得 4 筆、「的」得 9 筆，
+  // 而 Pagefind 對查詢末詞做前綴比對，單字會比對到大量詞彙。
+  // 詳見 ADR 0007 的「中文召回率實測」。
+  const MIN_QUERY_LENGTH = 2;
+
+  // 輸入節流。中文透過 IME 輸入時本來就會等 composition 結束才觸發，
+  // 這個值主要是給拉丁字母的逐字輸入用。
+  const DEBOUNCE_MS = 150;
+
+  const MAX_PAGES = 6;
+  const MAX_SUB_RESULTS = 2;
+
+  class SiteSearch extends HTMLElement {
+    #dialog!: HTMLDialogElement;
+    #input!: HTMLInputElement;
+    #status!: HTMLElement;
+    #list!: HTMLUListElement;
+
+    #pagefind: PagefindApi | null = null;
+    #loading: Promise<PagefindApi | null> | null = null;
+    #composing = false;
+    #timer = 0;
+    #seq = 0;
+
+    connectedCallback() {
+      this.#dialog = this.querySelector("dialog")!;
+      this.#input = this.querySelector(".search-input")!;
+      this.#status = this.querySelector(".search-status")!;
+      this.#list = this.querySelector(".search-results")!;
+
+      this.querySelector(".search-trigger")!.addEventListener("click", () =>
+        this.#open(),
+      );
+      this.querySelector(".search-close")!.addEventListener("click", () =>
+        this.#dialog.close(),
+      );
+
+      // <html lang> 決定不了鍵盤，只有執行期知道。靜態 HTML 一律送 ⌘K，
+      // 在非 Apple 平台由 JS 換掉 —— 這不違反「所有裝置拿到同一份 HTML」，
+      // 因為這顆按鈕本來就只在 JS 升級後才存在。
+      if (!/Mac|iPhone|iPad/.test(navigator.platform ?? "")) {
+        this.querySelector(".search-trigger__key")!.textContent = "Ctrl K";
+      }
+
+      this.#input.addEventListener("input", () => this.#schedule());
+
+      // IME 陷阱：注音／拼音輸入過程中，input 事件會帶著尚未選字的
+      // 中間狀態不斷觸發。在 composition 結束前搜尋，查的是使用者
+      // 還沒打完的字，既浪費請求也會讓結果在打字途中亂跳。
+      this.#input.addEventListener("compositionstart", () => {
+        this.#composing = true;
+      });
+      this.#input.addEventListener("compositionend", () => {
+        this.#composing = false;
+        this.#schedule();
+      });
+
+      this.#list.addEventListener("keydown", (e) => this.#navigate(e));
+      this.#input.addEventListener("keydown", (e) => this.#navigate(e));
+
+      // 關閉時清空。下次打開是一次乾淨的搜尋，而不是接續上次的結果。
+      this.#dialog.addEventListener("close", () => {
+        this.#input.value = "";
+        this.#list.replaceChildren();
+        this.#status.textContent = "";
+        this.#resetIfFailed();
+      });
+
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
+          e.preventDefault();
+          this.#open();
+        }
+      });
+    }
+
+    #open() {
+      this.#dialog.showModal();
+      this.#input.focus();
+      // 先把 Pagefind 拉起來，讓讀者打字時索引已經在路上。
+      void this.#load();
+    }
+
+    /** 第一次打開時才載入 Pagefind。失敗只回 null，由呼叫端顯示訊息。 */
+    #load(): Promise<PagefindApi | null> {
+      if (this.#loading) return this.#loading;
+
+      this.#loading = (async () => {
+        // 路徑放進變數 + @vite-ignore：/pagefind/ 是 astro build 之後才由
+        // Pagefind CLI 產生的，建置當下並不存在。若讓 Vite 靜態分析這個
+        // import，它會解析失敗並中斷建置。
+        const path = "/pagefind/pagefind.js";
+        try {
+          const mod = (await import(/* @vite-ignore */ path)) as PagefindApi;
+          this.#pagefind = mod;
+          return mod;
+        } catch {
+          // 訊息必須分兩種對象講。dev 模式下 /pagefind/ 必然是 404（索引
+          // 只在 build 期產生），該看到訊息的是開發者；但同一句話在
+          // production 出現時，是在對讀者說開發者的話 —— 讀者既跑不了
+          // pnpm build，也不需要知道這個站是怎麼建的。
+          // production 這句刻意不指定復原動作。「關閉後重新開啟」是我們的
+          // 實作細節（#loading 在 close 事件上失效），而它不保證有效 ——
+          // 失敗的那次回應若被瀏覽器或 CDN 快取住，重開拿到的還是同一份
+          // 404。承諾一個做不到的動作，比不給動作更傷信任；而讀者遇到
+          // 這種事的直覺（重新整理）本來就是更強的復原手段。
+          this.#status.textContent = import.meta.env.DEV
+            ? "搜尋索引尚未建置。開發模式請執行 pnpm build && pnpm preview。"
+            : "搜尋暫時無法使用，請稍後再試，或重新整理頁面。";
+          return null;
+        }
+      })();
+
+      return this.#loading;
+    }
+
+    /**
+     * 讓下一次打開重新載入 Pagefind。
+     *
+     * 失敗的 promise 會被 #loading 快取住，這對 dev 模式的 404 是刻意的
+     * ——否則每按一個鍵就重打一次必然失敗的請求。但快取若永不失效，
+     * production 上一次暫時性的網路失敗就會讓搜尋在這個頁面的餘生都不能用。
+     *
+     * 折衷點放在「關閉再打開」：符合讀者遇到怪事時的直覺，重試頻率也從
+     * 每次按鍵降到每次重開。已經載入成功的模組不丟棄。
+     */
+    #resetIfFailed() {
+      if (!this.#pagefind) this.#loading = null;
+    }
+
+    #schedule() {
+      clearTimeout(this.#timer);
+      if (this.#composing) return; // 選字中，等 compositionend
+      this.#timer = window.setTimeout(() => void this.#run(), DEBOUNCE_MS);
+    }
+
+    async #run() {
+      const query = this.#input.value.trim();
+
+      if (query.length < MIN_QUERY_LENGTH) {
+        this.#list.replaceChildren();
+        this.#status.textContent = query.length
+          ? `請至少輸入 ${MIN_QUERY_LENGTH} 個字`
+          : "";
+        return;
+      }
+
+      const pagefind = this.#pagefind ?? (await this.#load());
+      if (!pagefind) return;
+
+      // 每次查詢帶一個序號，回來時若已不是最新的就丟棄 ——
+      // 網路與索引分片的回應順序不保證與送出順序相同。
+      const seq = ++this.#seq;
+
+      // search() 與 data() 都會抓 wasm 與索引分片，都可能失敗，而
+      // #schedule() 是以 void this.#run() 呼叫的 —— 沒有這個 catch，
+      // 例外會變成沒人接的 unhandled rejection，連錯誤都不會有人看到。
+      //
+      // 注意 #load() 的 try 只包得住 import()。若 pagefind.js 載入成功
+      // 但 wasm 或分片抓不到（例如 scripts/prune-search-bundle.mjs 的
+      // 保留清單哪天失準），例外就會落在這裡而不是那裡。
+      try {
+        const { results } = await pagefind.search(query);
+        if (seq !== this.#seq) return;
+
+        const pages = await Promise.all(
+          results.slice(0, MAX_PAGES).map((r) => r.data()),
+        );
+        if (seq !== this.#seq) return;
+
+        this.#render(pages, query, results.length);
+      } catch {
+        if (seq !== this.#seq) return;
+
+        // 清空是這裡的重點，不是那句訊息。留著上一次查詢的結果、
+        // 而輸入框顯示的是新的查詢字串，讀者看到的不是「壞了」，
+        // 是「這個詞的結果是這些」—— 錯得比空白更糟。
+        this.#list.replaceChildren();
+        this.#status.textContent = "搜尋暫時無法使用，請稍後再試，或重新整理頁面。";
+
+        // 文案不提「關閉後重新開啟」，但下面的重置仍然做 —— 兩者是不同
+        // 的事：重置讓重開真的會重試（實質行為），文案則是我們對讀者
+        // 承諾的強度。做得到就做，但不保證的事不寫進承諾裡。
+        //
+        // 必須呼叫 destroy() 才是真的重試。
+        //
+        // 這裡踩過一次坑：原本只把 #pagefind 與 #loading 設回 null，
+        // 以為下次 import() 會重新載入。但動態 import 回傳的是瀏覽器
+        // 模組登錄表裡的「同一個」實例（實測 m === m2 為 true），
+        // Pagefind 已經初始化壞掉的 wasm 與索引狀態原封不動 ——
+        // 重開對話框只會再失敗一次，而錯誤訊息卻叫讀者重試。
+        //
+        // destroy() 釋放那份狀態，下次呼叫才會真的重新初始化。
+        try {
+          await this.#pagefind?.destroy?.();
+        } catch {
+          // destroy 自己失敗也不能讓這條錯誤處理路徑再拋一次例外。
+        }
+        this.#pagefind = null;
+        this.#loading = null;
+      }
+    }
+
+    #render(pages: PagefindData[], query: string, total: number) {
+      if (!total) {
+        this.#list.replaceChildren();
+        this.#status.textContent = `找不到「${query}」的結果`;
+        return;
+      }
+
+      this.#status.textContent = `${total} 筆結果`;
+
+      this.#list.replaceChildren(
+        ...pages.map((page) => {
+          const item = document.createElement("li");
+          const title = page.meta?.title ?? page.url;
+
+          // Pagefind 的 sub_results 第一筆通常就是頁面本身（標題相同、
+          // 摘要幾乎一樣），直接顯示會讓每筆結果都像重複了一次。
+          // 只留真正指向章節的那些。
+          const subs = (page.sub_results ?? [])
+            .filter((sub) => sub.title !== title)
+            .slice(0, MAX_SUB_RESULTS);
+
+          item.append(this.#link(page.url, title, page.excerpt, "search-hit"));
+
+          if (subs.length) {
+            const nested = document.createElement("ul");
+            nested.className = "search-subs";
+            nested.append(
+              ...subs.map((sub) => {
+                const li = document.createElement("li");
+                li.append(
+                  this.#link(sub.url, sub.title, sub.excerpt, "search-sub"),
+                );
+                return li;
+              }),
+            );
+            item.append(nested);
+          }
+
+          return item;
+        }),
+      );
+    }
+
+    #link(href: string, title: string, excerpt: string, className: string) {
+      const a = document.createElement("a");
+      a.className = className;
+      a.href = href;
+
+      const heading = document.createElement("span");
+      heading.className = "search-hit__title";
+      heading.textContent = title; // 標題用 textContent，不需要標記
+
+      const body = document.createElement("span");
+      body.className = "search-hit__excerpt";
+      // excerpt 是 Pagefind 產生的 HTML：內容已跳脫，只有 <mark> 是它加的。
+      // 命中處的標記是這個 UI 的核心 —— 實測顯示搜尋結果可能因為單字前綴
+      // 比對而看似無關（ADR 0007），讓讀者一眼看出「為何命中」比隱藏它誠實。
+      body.innerHTML = excerpt;
+
+      a.append(heading, body);
+      return a;
+    }
+
+    /** ↑↓ 在結果之間移動真實焦點，Enter 由連結自己處理。 */
+    #navigate(event: KeyboardEvent) {
+      if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+
+      const links = [...this.#list.querySelectorAll("a")];
+      if (!links.length) return;
+
+      event.preventDefault();
+      const current = links.indexOf(document.activeElement as HTMLAnchorElement);
+      const delta = event.key === "ArrowDown" ? 1 : -1;
+
+      // 從輸入框往下 → 第一筆；第一筆往上 → 回到輸入框。
+      if (current === -1) {
+        links[delta > 0 ? 0 : links.length - 1].focus();
+      } else if (current === 0 && delta < 0) {
+        this.#input.focus();
+      } else {
+        links[Math.min(links.length - 1, current + delta)].focus();
+      }
+    }
+  }
+
+  customElements.define("site-search", SiteSearch);
+</script>
+
+<style>
+  @layer components {
+    /* 元件升級前整個藏起來。搜尋沒有 JS 就不成立，
+       與其顯示一顆壞掉的按鈕，不如當它不存在。 */
+    site-search:not(:defined) {
+      display: none;
+    }
+
+    /* 自訂元素預設是 display: inline，沒有自己的版面。它在 header 的
+       flex 容器裡會被當成可壓縮的 flex item，於是壓到比自己的按鈕還窄
+       （實測 400px 視窗下只剩 26px），按鈕被自己的宿主切掉一半。
+       flex-shrink: 0 讓它把寬度讓給會捲動的 .topic-nav 而不是自己被切。 */
+    site-search {
+      display: flex;
+      flex-shrink: 0;
+    }
+
+    .search-trigger {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      flex-shrink: 0;
+      padding: var(--space-2) var(--space-3);
+      border: 1px solid var(--color-border-subtle);
+      border-radius: var(--radius-2);
+      background: var(--color-bg-subtle);
+      font-size: var(--text-sm);
+      color: var(--color-text-subtle);
+      cursor: pointer;
+    }
+
+    .search-trigger:hover {
+      border-color: var(--color-border);
+      color: var(--color-text-muted);
+    }
+
+    /* 窄螢幕只留放大鏡 —— header 的橫向空間要優先給主題導航 */
+    @media (width < 48rem) {
+      .search-trigger__label,
+      .search-trigger__key {
+        display: none;
+      }
+    }
+
+    .search-trigger__key {
+      padding-inline: var(--space-1);
+      border-radius: var(--radius-1);
+      background: var(--color-surface);
+      font-family: var(--font-mono);
+      font-size: var(--text-2xs);
+    }
+
+    /* --- 對話框 --- */
+
+    .search-dialog {
+      /* 靠上而非垂直置中：結果列表向下長，置中會讓整塊隨筆數上下跳動。 */
+      margin-block-start: 10vh;
+      margin-inline: auto;
+      inline-size: min(38rem, calc(100vw - 2 * var(--space-4)));
+      max-block-size: 70vh;
+      padding: 0;
+      overflow: hidden;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-4);
+      background: var(--color-bg);
+      color: var(--color-text);
+      box-shadow: var(--shadow-3);
+    }
+
+    /* display 必須掛在 [open] 上。瀏覽器預設樣式是
+       dialog:not([open]) { display: none }，而作者樣式的優先權高於
+       UA 樣式（與選擇器特異性無關，是層疊來源的差別）—— 無條件寫
+       display: flex 會讓對話框在頁面載入時就攤在內容上，且沒有 backdrop。 */
+    .search-dialog[open] {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .search-dialog::backdrop {
+      background: light-dark(rgb(0 0 0 / 0.3), rgb(0 0 0 / 0.6));
+      backdrop-filter: blur(2px);
+    }
+
+    .search-box {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      flex-shrink: 0;
+      padding: var(--space-4);
+      border-block-end: 1px solid var(--color-border-subtle);
+    }
+
+    .search-box__icon {
+      flex-shrink: 0;
+      color: var(--color-text-subtle);
+    }
+
+    .search-input {
+      flex: 1;
+      min-inline-size: 0;
+      border: 0;
+      background: none;
+      font: inherit;
+      font-size: var(--text-lg);
+      color: inherit;
+    }
+
+    .search-input:focus {
+      outline: none; /* 焦點指示由整個對話框承擔，框中框很吵 */
+    }
+
+    .search-close {
+      flex-shrink: 0;
+      padding: var(--space-1) var(--space-2);
+      border: 1px solid var(--color-border-subtle);
+      border-radius: var(--radius-1);
+      background: var(--color-bg-subtle);
+      font-family: var(--font-mono);
+      font-size: var(--text-2xs);
+      color: var(--color-text-subtle);
+      cursor: pointer;
+    }
+
+    .search-status:not(:empty) {
+      padding: var(--space-3) var(--space-4) 0;
+      font-size: var(--text-sm);
+      color: var(--color-text-subtle);
+    }
+
+    .search-results {
+      overflow-y: auto;
+      padding: var(--space-2);
+      list-style: none;
+    }
+
+    .search-results:empty {
+      display: none;
+    }
+
+    /* 以下全部是 JS 在執行期建立的節點，因此必須寫成 :global()。
+       Astro 的 scoped style 是靠建置期在標記上加 data-astro-cid-* 屬性
+       實作的，選擇器會被編譯成 .search-hit[data-astro-cid-xxx] ——
+       document.createElement 出來的元素沒有那個屬性，規則一條都不會中。
+       症狀是搜尋結果變成一串沒有樣式的藍色底線連結，而且沒有任何錯誤。
+
+       祖先選擇器 .search-results 維持 scoped，作用域因此仍然關得住：
+       規則只在這個元件的結果列表內生效，不會外洩成全站樣式。 */
+
+    .search-results :global(.search-hit),
+    .search-results :global(.search-sub) {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-1);
+      padding: var(--space-3);
+      border-radius: var(--radius-2);
+      text-decoration: none;
+      color: inherit;
+    }
+
+    .search-results :global(:is(.search-hit, .search-sub):is(:hover, :focus-visible)) {
+      background: var(--color-accent-bg);
+      outline: none;
+    }
+
+    .search-results :global(.search-hit__title) {
+      font-weight: var(--weight-bold);
+      font-size: var(--text-sm);
+      line-height: var(--leading-tight);
+      color: var(--color-text);
+    }
+
+    .search-results :global(.search-hit__excerpt) {
+      font-size: var(--text-sm);
+      line-height: var(--leading-tight);
+      color: var(--color-text-muted);
+      /* 摘要固定兩行。長度不一的摘要會讓結果列表的節奏散掉，
+         而讀者掃視時只需要看到命中處的上下文。 */
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      overflow: hidden;
+    }
+
+    /* Pagefind 在命中處加 <mark>。實測顯示中文單字會前綴比對到不相關的
+       詞（ADR 0007），標出命中處讓讀者能立刻判斷這筆是否真的相關。 */
+    .search-results :global(mark) {
+      background: var(--accent-4);
+      color: var(--color-text);
+      border-radius: var(--radius-1);
+    }
+
+    /* 同一頁的章節命中，縮排表示從屬 */
+    .search-results :global(.search-subs) {
+      list-style: none;
+      margin-inline-start: var(--space-5);
+      border-inline-start: 1px solid var(--color-border-subtle);
+    }
+
+    .search-results :global(.search-sub .search-hit__title) {
+      font-weight: var(--weight-normal);
+      color: var(--color-text-muted);
+    }
+  }
+</style>
