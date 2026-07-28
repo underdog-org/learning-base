@@ -35,6 +35,17 @@
 
 兩件事的共同點：**一份沒有被執行過的規範，讀起來與可執行的規範沒有差別。**
 
+**階段九已完成**：`<ease-lab>`（ADR 0005 的 L3）是第一個帶第三方依賴的按需元件。
+gsap 68 KB 落在自己的 `gsapRuntime` 紅線上，共用 JS 增量為 **0** —— 邊界成立。
+這一階段值得記的是它撞出的兩個界線：
+
+1. **`cssCacheable` 的餘裕撞到只剩 38 B。** 閘門顯示「✓ 100%」而它其實已經失去
+   偵測能力 —— 下一條 CSS 規則就會讓 build 失敗，且失敗的原因與那次變更無關。
+   這是階段七採用 `"never"` 時預告過的成長，紅線已調高至 61440 並記錄理由。
+2. **「量到的數字」與「量測環境」再次混淆。** 驗收時以 JS 取樣量到「動畫瞬間跳到
+   終點」，實際是分頁被凍結、rAF 沒觸發所致。與階段六補、階段八補是同一個形狀，
+   只是這次錯的一方是量測工具而非產物。
+
 **剩餘階段已於 2026-07-28 重排**（原本階段七是 L2、階段八是 L3，而階段八的內文
 寫著「刻意排在 L2 之前」—— 編號與內文互相否定，且與 ADR [0005](../adr/0005-playground-tiers.md)
 牴觸）。新順序與其判準：
@@ -43,7 +54,7 @@
 |---|---|---|
 | 七 ✅ | 閘門修補 | 在最重的依賴進來之前，先讓量測可信 |
 | 八 ✅ | `<toc-highlight>` | 最便宜的邊界驗證，兌現階段四未完成的驗收項 |
-| 九 | L3 控制變數面板 | 對齊 ADR 0005 原意 |
+| 九 ✅ | L3 控制變數面板 | 對齊 ADR 0005 原意 |
 | 十 | L2 Playground | 唯一需要 200KB 級 chunk 的一步，放最後 |
 
 判準是**依 island 複雜度遞增地驗證邊界**（ADR 0005「建置順序上的刻意安排」）。
@@ -52,6 +63,8 @@
 adapter 那次報的是 `0 B` 與「全數通過」。
 
 - `astro@^7.1.4` + `@astrojs/mdx@^7.0.4` + `astro-expressive-code@^0.44.1` + `pagefind@1.5.2`
+  + `gsap@^3.15.0`（階段九，**dependency 而非 devDependency** —— build 期的 `EaseLab.astro`
+  也要用它求值）
 - 部署：`@astrojs/cloudflare@^14.1.5` + `wrangler` —— 目前所有路由皆預渲染，
   `dist/server/` 為空，adapter 實際只負責產物佈局（`dist/client/`）
 - 效能閘門：`scripts/perf-budget.mjs` + `perf-budget.config.json`（`distDir: "dist/client"`、
@@ -60,19 +73,23 @@ adapter 那次報的是 `0 B` 與「全數通過」。
 - 搜尋：`pnpm search:index`（`pagefind --site dist/client` + `scripts/prune-search-bundle.mjs`），
   夾在建置與閘門之間。**`dist/client` 而非 `dist`** —— Cloudflare adapter 的產物位置，理由見階段六補
 - Markdown 管線：`remark-cjk-friendly`、`rehype-autolink-headings`、兩個自訂 rehype 外掛
-- 12 頁靜態產物（索引 9 頁），**共用 client JS 7.4KB**（EC 複製鈕 2.5 + 搜尋 3.2 +
-  Vite preload helper 1.4 + TOC 載入器 0.3），外部 CSS 47.3KB／7 支、內嵌 CSS 0，
-  另有按需載入的 Pagefind 執行期 151KB + 索引 21KB + `<toc-highlight>` 938 B
-  —— JS 為階段八補修正 import 圖漏算後的數字（此前少算 1.4KB，更早期讀到的是 0），
-  CSS 為階段七改用 `inlineStylesheets: "never"` 之後的數字
+- 19 頁靜態產物（索引 16 頁），**共用 client JS 7.4KB**（EC 複製鈕 2.5 + 搜尋 3.2 +
+  Vite preload helper 1.4 + TOC 載入器 0.3），外部 CSS 52.0KB／8 支、內嵌 CSS 0，
+  另有按需載入的 Pagefind 執行期 151KB + 索引 85KB + `<toc-highlight>` 938 B
+  + `<ease-lab>` 3.9KB + gsap 68KB
+  —— 共用 JS 為階段八補修正 import 圖漏算後的數字（此前少算 1.4KB，更早期讀到的是 0），
+  且**階段九未使其增加**；CSS 為階段七改用 `inlineStylesheets: "never"` 之後的數字
 - 延後載入：`src/scripts/`（元件本體，`import()` 的目標）＋ 元件內的載入器。
   **不使用 `client:*` directive**，理由見三條鐵則第 1 條
 - 樣式：`index / reset / tokens / base / prose / code / doc-layout / topics`
   （`code.css` 於階段五縮減為只剩一條 CJK 規則，視覺樣式改由 EC 的 `styleOverrides` 承擔）
-- 資料層：`utils/nav.ts`、`utils/toc.ts`、`utils/topics.ts`（皆為 build 期純函式）
+- 資料層：`utils/nav.ts`、`utils/toc.ts`、`utils/topics.ts`（皆為 build 期純函式）。
+  階段九新增 `utils/ease-curve.ts`（曲線取樣）、`utils/ease-catalog.ts`（GSAP 的 ease 詞彙）、
+  `utils/uid.ts` —— 前兩者刻意**不 import gsap**，只收字串與函式，因此 build 期與執行期
+  能餵進同一個 `gsap.parseEase()`，兩邊畫出來必然是同一條線
 - 驗收頁：`/style-guide`（手寫 HTML，排版）、`/style-guide/markdown`（MDX，管線）
   —— 兩者與首頁皆以 `searchable={false}` 排除於搜尋索引之外
-- 四個主題：`typescript`（含二層巢狀）、`gsap`、`ai-ml`、`claude`
+- 五個主題：`typescript`（含二層巢狀）、`gsap`、`ai-ml`、`claude`、`pnpm`
 
 ---
 
@@ -780,11 +797,22 @@ commit message 交代的決定，而不是悄悄多出來的 45 KB。
 - [x] `gsap` 未被 Rollup 拉進共用 chunk，落在報告的「按需才付」段
 - [x] 最大單一 chunk 指向 `ease-lab.js` 而非 gsap —— 那條線仍答得出
       「我們自己的程式碼有沒有意外合併」
-- [ ] 同頁四個實例互不干擾（radio 的 name 各自獨立）
-- [ ] 停用 JS：靜態曲線仍在、控制項可鍵盤操作、無版面跳動
-- [ ] `back` / `elastic` 的 overshoot 未被 viewBox 裁掉
-- [ ] `prefers-reduced-motion` 下不自動重播
+- [x] 同頁四個實例互不干擾 —— 實測 radio name 為 `direction-ease-lab-1..4`，
+      改第一個的 family 與方向後，其餘三個的 ease 字串與選取狀態均未變動
+- [x] 停用 JS：四條 65 點的靜態曲線在產物 HTML 裡，控制項是真的
+      `<select>` / `<input>`，初始 script 不含 gsap，升級前只有播放鈕隱藏
+- [x] `back` / `elastic` 的 overshoot 未被 viewBox 裁掉
+      （`back.out(5)` 實測 viewBox 上緣 1.514，曲線完整）
+- [x] `prefers-reduced-motion` 下不自動重播（覆寫 `matchMedia` 對照實測：
+      reduced 之下改參數只更新曲線、方塊停在起點）
 - [x] 深淺模式、行動裝置、複製鈕實際點擊
+
+**驗收時踩到的一件事（不是程式問題，但值得記）**：以 JS 取樣方塊位置時量到
+「動畫瞬間跳到終點」，追下去是分頁被瀏覽器凍結、`requestAnimationFrame`
+完全沒觸發所致 —— gsap 的 ticker 在恢復時以一個巨大的 delta 補完，於是每次
+取樣都只讀得到終點。**動畫本身正常**，改用連續截圖驅動渲染即可看到圓點沿
+曲線推進、方塊同步移動。教訓與階段六補同一類：讀到的數字要先問「這是被量的
+東西的性質，還是量測環境的性質」。
 
 ---
 
