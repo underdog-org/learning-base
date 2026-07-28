@@ -22,12 +22,13 @@
     "@astrojs/mdx": "^7.0.4",
     "astro": "^7.1.4",
     "astro-expressive-code": "^0.44.1",
+    "gsap": "^3.15.0",
     "rehype-autolink-headings": "^7.1.0",
     "remark-cjk-friendly": "^2.3.1",
     "unist-util-visit": "^5.1.0"
   },
   "devDependencies": {
-    "wrangler": "^4.114.0",
-    "pagefind": "^1.5.2"
+    "pagefind": "^1.5.2",
+    "wrangler": "^4.114.0"
   }
 }

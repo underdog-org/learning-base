@@ -625,7 +625,7 @@ config 註解與閘門的失敗訊息裡。另加一行**不設閘的診斷**輸
    整個狀態 Map 可以刪掉，深連結落地的初始狀態也一併免費解掉。
 2. **最後一節永遠不會被高亮。** 它到文件底部的距離若小於「視窗高度 − 判定線」，
    那個標題就永遠停在線下方（實測差 79px），而這是每一篇文章都會發生的情況。
-   補一個 `scrollend` 上的頁尾補償（一次手勢只發一次，不是每一帧 ——
+   補一個 `scrollend` 上的頁尾補償（一次手勢只發一次，不是每一幀 ——
    捲動進度條走純 CSS 是同一個理由）。舊版 Safari 沒有 `scrollend`，那裡就只是
    少了這項補償。
 
@@ -700,22 +700,91 @@ config 註解與閘門的失敗訊息裡。另加一行**不設閘的診斷**輸
 **刻意排在 L2 之前** —— 技術上簡單得多、對 GSAP 教學價值更高。
 按需載入的邊界已由階段八驗過，這裡驗的是**帶第三方依賴**的元件。
 
-- [ ] 安裝 `gsap`
-- [ ] 建立 Web Component（`customElements.define`，不使用 Shadow DOM 樣式隔離，讓 token 穿透）
-  - [ ] `<control-panel>` —— `<input type="range">` 群組，即改即看
-  - [ ] `<timeline-scrubber>` —— GSAP timeline 進度控制
-  - [ ] ease 曲線視覺化
-- [ ] 延後載入，觸發條件為「元素進入視窗」（IntersectionObserver + `import()`，
-      比照階段八的載入器；`client:visible` 不可用，理由見 ADR 0003）
-- [ ] 在 MDX 中直接使用，寫一篇 GSAP 文章驗證
-- [ ] 通過階段四閘門
-  - [ ] **先處理 `sharedJs` / `pageInitialJs` 的餘裕**：階段八後只剩 750 B（92%），
-        而每個新元件都會再加一個載入器
-  - [ ] `gsap` 為按需產物 —— 依 ADR 0008 開一條屬於它的紅線，不併進 `singleChunk`，
-        並加進腳本的 `COVERED_BY_OWN_LINE` 從底網扣除
+**範圍收斂為單一元件 `<ease-lab>`。** 原本列的三個元件裡，`<control-panel>` 與
+`<timeline-scrubber>` 是在推測第二、第三個用例長什麼樣子 —— 通用化沒有第二個
+使用者可以驗證，定出來的介面只會是想像的。先把 ease 這一件事做到好；
+timeline / stagger 真的要做時，共通的部分才看得出來。
 
-**驗收**：未使用該元件的頁面 JS 增量為 0；同頁多個實例互不干擾；
-`gsap` 未被 Rollup 拉進共用 chunk。
+- [x] 安裝 `gsap`（3.15.0，**dependency 而非 devDependency** —— build 期也要用）
+- [x] `<ease-lab>` Web Component（`customElements.define`，不使用 Shadow DOM，讓 token 穿透）
+  - [x] ease 家族選單 + 方向 radio + 依家族切換的強度 slider
+        （power 的次方、back 的 overshoot、elastic 的 amplitude / period）
+  - [x] 曲線圖與預覽方塊吃**同一次求值** —— 一條 `ease: "none"` 的 tween 推進度，
+        再自己餵給 ease 函式。兩條路徑各自演化的話，「曲線」與「動作」有機會對不上，
+        而這個元件存在的唯一理由就是讓那兩件事是同一件事
+  - [x] ease 字串（`back.out(1.4)`）顯示且可複製 —— 這是讀者能從元件帶走的東西
+  - [x] `utils/ease-curve.ts`（取樣，純數學）與 `utils/ease-catalog.ts`（GSAP 的 ease 詞彙）
+        **都不 import gsap**，只收字串與函式 —— 因此 build 期與執行期能餵進同一個
+        `gsap.parseEase()`，兩邊畫出來必然是同一條線
+- [x] 延後載入，IntersectionObserver + `import()`（比照階段八的載入器）
+  - [x] 與階段八用 `requestIdleCallback` 不同，因為成本量級不同：
+        `<toc-highlight>` 是 834 B，閒置時抓完沒什麼好省；這裡連 gsap 是 70 KB 以上
+- [x] **build 期預渲靜態曲線**（無 JS 時的降級行為）
+  - [x] `EaseLab.astro` 的 frontmatter `import gsap` —— frontmatter 的相依不進
+        client bundle，這份 build 期的 GSAP 是零成本的
+  - [x] 自己重寫一份 easing 公式的話，那份「幾乎一樣」的曲線遲早會與真正的動畫
+        分岔，而且分岔時沒有任何錯誤訊息
+  - [x] 控制項在 HTML 裡就是真的 `<select>` / `<input>`，**JS 全程不建立任何節點**
+        （階段六的坑：`createElement` 出來的元素沒有 `data-astro-cid-*`，吃不到
+        scoped style）。slider 的顯示與隱藏交給 CSS 屬性選擇器，JS 只搬 `data-family`
+  - [x] 只藏播放鈕（`:not([data-ready])`），不藏整個元件 —— 升級前曲線與參數仍完整可讀
+  - [x] 實例編號的計數器放 `utils/uid.ts` 而非 frontmatter —— frontmatter 被編譯進
+        render 函式，每次渲染都重跑，寫在那裡的計數器永遠回到 0，兩個實例會拿到
+        同一組 radio name（症狀：點第二個面板會清掉第一個的選擇）
+- [x] `prefers-reduced-motion`：**不關掉動畫**（動畫是內容本身而非裝飾），
+      改為不自動重播、由讀者按播放鈕。曲線圖仍隨參數即時更新
+- [x] 寫一篇 GSAP 文章驗證（`gsap/ease.mdx`，同頁四個實例）
+- [x] 通過閘門
+  - [x] `gsap` 依 ADR 0008 開 `onDemand.gsapRuntime` 一條，排除於 `singleChunk` 之外，
+        並加進 `COVERED_BY_OWN_LINE` 從底網扣除
+  - [x] 排除的依據是 `astro.config.mjs` 的 `manualChunks` 給的**具名前綴**，
+        不是「哪支比較大」或雜湊檔名 —— 後者會在下次 build 悄悄失準，
+        而失準的方向是靜默通過
+  - [ ] ~~先處理 `sharedJs` / `pageInitialJs` 的餘裕~~ —— **本階段刻意未做**，見下方紅線段落
+
+**刻意不做**：`duration` slider。曲線的橫軸是進度不是秒，`duration` 只改變重播速度、
+不改變曲線形狀 —— 混進第二個變數會讓「拖這個 → 曲線這樣變」的因果關係變糊。
+
+**閘門結果**（19 頁）：
+
+| 類別 | 項目 | main | 階段九 | 上限 |
+|---|---|---|---|---|
+| 人人都付 | 共用 JS | 7.4 KB | **7.4 KB（增量 0）** | 8.0 |
+| | 最大單一 chunk | 3.2 KB | 3.9 KB（`ease-lab.js`） | 50.0 |
+| | 單頁初始 JS | 7541 B | 7987 B（+493 B 載入器） | 8192 |
+| | 外部 CSS | 49334 B | 53210 B（+3876 B） | 61440 |
+| 按需才付 | **gsap 執行期** | — | **68.0 KB** | 80.0 |
+| | 延後載入的元件 | 938 B | 4.8 KB | 8.0 |
+
+**gsap 的體積是實測而非估計**（esbuild bundle + minify，3.15.0）：
+`gsap` 71.7 KB min / 28.3 KB gzip；`gsap/gsap-core`（無 CSSPlugin）52.4 KB；
+`+ ScrollTrigger` 116.7 KB。**core 幾乎不可 tree-shake** —— 只用 `gsap.to()` 與用滿是
+同一個數字，所以 `gsapRuntime` 的基準線是 gsap 的地板價，不是「我們用了多少」的函數。
+上限 80 KB 的餘裕只夠吸收小幅升版：加 ScrollTrigger 會直接撞線，那應該是一個要在
+commit message 交代的決定，而不是悄悄多出來的 45 KB。
+
+**紅線調整**：`cssCacheable` 由 53248 調高至 61440。**這一次是真的放寬，不是搬移** ——
+`<EaseLab>` 的 scoped CSS 是 3876 B 的新增成本，撞完只剩 **38 B 餘裕**。
+那 38 B 才是重點：閘門會顯示「✓ 100%」，而它其實已經失去偵測能力 ——
+下一條 CSS 規則就會讓 build 失敗，且失敗的原因與當時那次變更無關。
+這是階段七 config 註解預告過的成長（採用 `"never"` 之後每個新元件的 scoped CSS
+都直接記在這條），因此是預期中的事件而非意外。
+
+**`pageInitialJs` 刻意不動**（7987 / 8192，餘裕 205 B）—— 上面那個未打勾的項目
+原本要求「先處理餘裕再加元件」，本階段有意識地不照做：它還沒撞線，而那 205 B
+就是下一個 island 載入器的預算。撞到時該問的是「載入器能不能共用」，
+不是現在先把空間訂下來 —— 提早調高會讓那個問題永遠不會被問。
+
+**驗收**：
+- [x] 未使用該元件的 18 頁 JS 增量為 0（共用 JS 與 main 逐 chunk 相同）
+- [x] `gsap` 未被 Rollup 拉進共用 chunk，落在報告的「按需才付」段
+- [x] 最大單一 chunk 指向 `ease-lab.js` 而非 gsap —— 那條線仍答得出
+      「我們自己的程式碼有沒有意外合併」
+- [ ] 同頁四個實例互不干擾（radio 的 name 各自獨立）
+- [ ] 停用 JS：靜態曲線仍在、控制項可鍵盤操作、無版面跳動
+- [ ] `back` / `elastic` 的 overshoot 未被 viewBox 裁掉
+- [ ] `prefers-reduced-motion` 下不自動重播
+- [ ] 深淺模式、行動裝置、複製鈕實際點擊
 
 ---
 

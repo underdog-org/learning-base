@@ -86,8 +86,23 @@ const SEARCH_DIR = "pagefind/";
 const isSearchFile = (f) => rel(f).startsWith(SEARCH_DIR);
 const searchFiles = files.filter(isSearchFile);
 
+// gsap（ADR 0005 L3，階段九）與搜尋 bundle 同一個處理：第三方執行期不參與
+// sharedJs / singleChunk。它 71 KB，本身就超過 singleChunk 的上限，計入的話
+// 那條線會永遠指向它 —— 而它唯一該回答的問題是「我們自己的程式碼有沒有意外
+// 合併」，不是「頁面上有沒有動畫函式庫」。改由 onDemand.gsapRuntime 涵蓋。
+//
+// 判定用檔名前綴，而前綴由 astro.config.mjs 的 manualChunks 明確指定。
+// 不用「哪支最大」或雜湊檔名 —— 那種判定會在下次 build 悄悄失準，
+// 而失準的方向是靜默通過（gsap 混進 singleChunk 只會讓那條線讀不出訊號，
+// 不會變紅）。前綴對不上時 gsapRuntime 會讀成 0，那是看得見的失敗。
+const GSAP_CHUNK = /(^|\/)gsap[.-][^/]*\.js$/;
+const isGsapFile = (f) => GSAP_CHUNK.test(rel(f));
+const gsapFiles = files.filter(isGsapFile);
+
 const htmlFiles = files.filter((f) => f.endsWith(".html"));
-const jsFiles = files.filter((f) => f.endsWith(".js") && !isSearchFile(f));
+const jsFiles = files.filter(
+  (f) => f.endsWith(".js") && !isSearchFile(f) && !isGsapFile(f),
+);
 
 const ASSET_EXT = new Set([
   ".woff", ".woff2", ".ttf", ".otf", ".eot",
@@ -257,7 +272,8 @@ const sharedBytes = sum(sharedJs.map(sizeOf));
 // —— 它會自動落在這裡；而大型套件另開專屬紅線之後，再從這裡扣除。
 const COVERED_BY_OWN_LINE = [
   isSearchFile, // → onDemand.searchRuntime / searchIndex
-  // 階段九的 gsap、階段十的 CodeMirror 各自開專屬紅線之後，判定加在這裡。
+  isGsapFile, //   → onDemand.gsapRuntime（階段九）
+  // 階段十的 CodeMirror 開了專屬紅線之後，判定同樣加在這裡。
   // 扣除的用意與 singleChunk 排除 pagefind 相同：一支 200KB 的第三方執行期
   // 會讓「我們自己的按需元件有多大」這個訊號完全讀不出來。
 ];
@@ -315,6 +331,21 @@ const checks = [
     label: "單頁初始 JS（最大）",
     actual: worstPage.bytes,
     detail: `${worstPage.path}；共 ${pages.length} 頁`,
+  },
+  {
+    // gsap 執行期（ADR 0005 L3）。體積由 gsap 版本決定，與我們寫了幾個
+    // 控制面板無關 —— core 幾乎不可 tree-shake，實測只用 gsap.to() 與用滿
+    // 是同一個數字。因此這條跟 searchRuntime 一樣，實際作用是回歸測試：
+    // 它變動只有三種原因，升版、裝了 plugin、或者它不再是按需的。
+    //
+    // 讀成 0 不是「沒有成本」而是「沒找到」—— 若頁面上明明有 <ease-lab>
+    // 卻讀到 0，代表 manualChunks 的具名前綴與這裡的判定對不上了。
+    key: "gsapRuntime",
+    label: "gsap 執行期",
+    actual: sum(gsapFiles.map(sizeOf)),
+    detail: gsapFiles.length
+      ? `${gsapFiles.length} 支：${gsapFiles.map(rel).join(", ")}`
+      : "未產生（尚無頁面使用 <ease-lab>）",
   },
   {
     // 執行期：pagefind.js + worker + wasm。體積固定，只有升版才會變動。

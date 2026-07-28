@@ -169,5 +169,27 @@ export default defineConfig({
     inlineStylesheets: "never",
   },
 
+  vite: {
+    build: {
+      rollupOptions: {
+        output: {
+          // gsap 切成一支具名 chunk（階段九，ADR 0008）。
+          //
+          // 目的不是分割本身 —— 它只被 <ease-lab> 這一個動態 import 點用到，
+          // Rollup 本來就會把它切出來。目的是**讓閘門認得出它**：
+          // perf-budget.mjs 必須把 gsap 從「最大單一 chunk」排除、改記到
+          // onDemand.gsapRuntime，而排除的依據若是「哪支比較大」或某個
+          // 雜湊檔名，那條規則會在下次 build 悄悄失準。具名之後，判定是
+          // 一個檔名前綴，看得見也改得動。
+          //
+          // 與階段六排除 dist/pagefind/ 是同一個處理，只是 Pagefind 的產物
+          // 本來就在自己的目錄裡，不需要另外命名。
+          manualChunks: (id) =>
+            id.includes("/node_modules/gsap/") ? "gsap" : undefined,
+        },
+      },
+    },
+  },
+
   adapter: cloudflare(),
 });
