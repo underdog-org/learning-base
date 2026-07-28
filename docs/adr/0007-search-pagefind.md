@@ -30,7 +30,8 @@
 - 索引在 build 期生成，內容更新需重新 build 才會反映在搜尋結果中（對靜態知識庫可接受）。
 - 需在 build pipeline 中加入 Pagefind 步驟（在 `astro build` 之後對 `dist/` 執行）。
 - 搜尋 UI（輸入框、結果列表、鍵盤導航、快捷鍵）需自行實作，約一個 Web Component 的工作量。
-- 搜尋元件同樣受 island 規則約束，應以 `client:idle` 或使用者觸發時載入，不進 global bundle。
+- 搜尋元件同樣受鐵則約束：Pagefind 執行期不得進入初始載入路徑，只在使用者觸發時以
+  執行期 `import()` 載入（實作見 `SiteSearch.astro`，那也是本專案第一個這種形狀的元件）。
 
 ## 中文召回率實測（2026-07-28，9 頁 / 784 詞）
 

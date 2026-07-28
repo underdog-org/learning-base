@@ -59,9 +59,11 @@
 
 ## 鐵則
 
-> **所有 L2 以上的元件一律是 Astro island，禁用 `client:load`，永遠不進 global bundle。**
-> 預設 `client:visible`；不改變版面、不承載內容的輕量增強元件可用 `client:idle`
-> （措辭修訂的理由見 [ADR 0003](0003-no-ui-framework.md)）。
+> **所有 L2 以上的元件一律不得進入初始載入路徑。**
+> 元件本體只能由執行期 `import()` 取得；預設觸發條件是「元素進入視窗」，
+> 不改變版面、不承載內容的輕量增強元件可用 idle 或其他更早的條件
+> （措辭兩次修訂的理由見 [ADR 0003](0003-no-ui-framework.md)，第二次的重點是
+> `client:*` directive 在本專案根本不可用）。
 
 一篇 MDX 可混入十個 demo，讀者只載入實際滾動到的那幾個。這是選擇自建 Astro（[ADR 0001](0001-self-built-astro-docs.md)）的最大兌現點。
 
@@ -75,7 +77,7 @@
 
 **判準是「依 island 複雜度遞增地驗證邊界」，不是各級的編號順序。** 實作順序為：
 
-1. **一個最小 island 先行** —— `<toc-highlight>` scroll spy，約 30 行，`client:idle`。
+1. **一個最小 island 先行** —— `<toc-highlight>` scroll spy，約 40 行，idle 時載入。
    [ADR 0008](0008-performance-budget-gate.md) 的閘門有一條性質「按需載入的元件不計入
    單頁初始 JS」從未被真實案例驗證過（基準線建立在零 island 的乾淨產物上，無從構造案例）。
    用 30 行程式碼驗這件事，撞線時歸因是明確的；用 L2 驗，撞線時分不出是 island 邊界壞了、
