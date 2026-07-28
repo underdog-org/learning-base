@@ -19,15 +19,21 @@
 之後，閘門有一段時間量的是不存在的路徑，回報 `0 B` 與「全數通過」。經過見「階段六補」。
 以下所有數字都是修正之後的。
 
-**下一步有兩個候選，建議先做後者**：
+**剩餘階段已於 2026-07-28 重排**（原本階段七是 L2、階段八是 L3，而階段八的內文
+寫著「刻意排在 L2 之前」—— 編號與內文互相否定，且與 ADR [0005](adr/0005-playground-tiers.md)
+牴觸）。新順序與其判準：
 
-- `<toc-highlight>` scroll spy —— 約 30 行，是驗證「`client:idle` 不計入單頁初始 JS」的
-  第一個真實案例（EC 與搜尋的 JS 都是一般 `<script src>`，驗不到這一層）
-- ~~先修 `css` 這條紅線的量測語意~~ —— **已結案**（見階段六「已結案：`css` 這條紅線
-  量錯了東西」），拆成 `cssCacheable` + `pageInlineCss` 兩條
-- **先補上 `dist/server/` 的閘門盲區檢查**（見階段六補的待辦）。理由與上面那條 `css`
-  是同一個：在閘門可能靜默量不到東西的情況下加新元件，是在對著錯的數字做決定。
-  這次的版本更糟 —— `css` 至少報了一個「錯的數字」，adapter 那次報的是 `0 B` 與「全數通過」
+| 階段 | 內容 | 為什麼在這 |
+|---|---|---|
+| 七 | 閘門修補 | 在最重的依賴進來之前，先讓量測可信 |
+| 八 | `<toc-highlight>` | 最便宜的 island 邊界驗證，兌現階段四未完成的驗收項 |
+| 九 | L3 控制變數面板 | 對齊 ADR 0005 原意 |
+| 十 | L2 Playground | 唯一需要 200KB 級 chunk 的一步，放最後 |
+
+判準是**依 island 複雜度遞增地驗證邊界**（ADR 0005「建置順序上的刻意安排」）。
+階段七之所以插在最前面，理由與階段六補是同一個：在閘門可能靜默量不到東西的情況下
+加新元件，是在對著錯的數字做決定 —— 而 `css` 那次至少報了一個「錯的數字」，
+adapter 那次報的是 `0 B` 與「全數通過」。
 
 - `astro@^7.1.4` + `@astrojs/mdx@^7.0.4` + `astro-expressive-code@^0.44.1` + `pagefind@1.5.2`
 - 部署：`@astrojs/cloudflare@^14.1.5` + `wrangler` —— 目前所有路由皆預渲染，
@@ -238,8 +244,8 @@
 - [x] 順帶驗到 Rollup 的 tree-shaking：同一份 payload 若只取 `.length`，
       會被常數摺疊成 `console.log(900)` 而完全不進產物。閘門量的是**實際產物**，
       不是 import 敘述 —— 這正是要的語意
-- [ ] `client:visible` 不計入初始 JS 的行為，待階段七第一個真實 island 出現時驗證
-      （目前無任何 island，無從構造案例）
+- [ ] 按需載入的元件不計入初始 JS 的行為，待**階段八**第一個真實 island 出現時驗證
+      （目前無任何 island，無從構造案例）。這一項未完成正是階段八排在 L3 / L2 之前的理由
 
 ---
 
@@ -416,7 +422,8 @@ config 註解與閘門的失敗訊息裡。另加一行**不設閘的診斷**輸
 
 新舊數字不可比較：36864 是舊定義下的總量上限，新的兩條是重新定義後的兩種成本，非放寬。
 
-- [ ] **待決：`inlineStylesheets` 是否改為 `"never"`。** 實測（12 頁，非提交狀態）：
+- [ ] **待決：`inlineStylesheets` 是否改為 `"never"`。**（已排入**階段七**定案）
+      實測（12 頁，非提交狀態）：
 
   | | 外部 CSS | 單頁內嵌（最大） | 最貴單頁首次載入 |
   |---|---|---|---|
@@ -456,7 +463,8 @@ config 註解與閘門的失敗訊息裡。另加一行**不設閘的診斷**輸
   - [x] 改 `distDir: "dist/client"` 後數字回來：共用 JS 6.9KB、外部 CSS 38.5KB
   - [x] `_distDir` / `_distDir_gap` 兩條註記寫進 config，記錄病灶與下述盲區
 
-- [ ] **待辦：讓 `dist/server/` 的盲區發得出聲。** 目前 `distDir` 指向 client 沒有漏掉
+- [ ] **待辦：讓 `dist/server/` 的盲區發得出聲。**（已排入**階段七**，是它排在所有 island
+      之前的主要理由）目前 `distDir` 指向 client 沒有漏掉
       任何東西（server 為空），但哪天出現 on-demand 路由，worker 的 JS 就完全不在閘門
       視野內 —— 而且是**靜默地**不在：閘門不會變紅，只是繼續回報 client 的數字並通過。
       修法不是把 `distDir` 改回 `dist`（會重現上面的 key 對不上），而是在
@@ -486,9 +494,93 @@ config 註解與閘門的失敗訊息裡。另加一行**不設閘的診斷**輸
 
 ---
 
-## 階段七：L2 可執行 Playground
+## 階段七：閘門修補（在任何 island 之前）
+
+> ADR [0008](adr/0008-performance-budget-gate.md)
+
+**這一階段不新增任何功能，只讓量測可信。** 階段八起會陸續引進 island，階段十更是
+200KB 級的依賴 —— 那正是最不能容忍閘門說謊的時刻。階段六補已經示範過一次
+「綠燈的謊」長什麼樣子，這階段是不讓它再發生一次。
+
+- [ ] **`dist/server/` 盲區發得出聲**（承接階段六補的待辦）
+  - [ ] `scripts/perf-budget.mjs` 前置檢查：`dist/server/` 出現 `.js` 就直接失敗，
+        並在訊息裡說明「有 on-demand 路由，worker 的 JS 不在閘門視野內」
+  - [ ] **不是**把 `distDir` 改回 `dist` —— 那會重現階段六補的 key 對不上問題
+  - [ ] 移除／更新 `perf-budget.config.json` 的 `_distDir_gap` 註記
+        （那條註記的存在理由就是「還沒有程式碼擋在盲區前面」）
+- [ ] **`inlineStylesheets` 定案**（承接階段六的待決事項）
+  - [ ] 決定採用 `"never"` 或維持 `"auto"`，資料見階段六的表
+  - [ ] 若採用 `"never"`，`cssCacheable` 需同步調高（43.9 KB 會貼在 44.0 KB 上限），
+        理由須寫進 commit message —— 那是重新定義的連帶調整而非放寬
+- [ ] **紅線分類落地**（ADR 0008 的「人人都付 / 按需才付」）
+  - [ ] `perf-budget.config.json` 的 `budgets` 依兩類分組，`_usage` 補上分類原則
+  - [ ] 閘門輸出按分類分段，讓「這筆成本誰付」在報告裡一眼可見
+  - [ ] 為階段九／十預留：新增按需產物時必須同時開一條紅線，只排除不設限等於
+        讓那筆體積從報告裡消失
+
+**驗收**：
+- [ ] 手動在 `dist/server/` 放一支 `.js` → build 以 exit 1 失敗，訊息說得出原因
+- [ ] `pnpm build` 通過，數字與階段六補一致（共用 JS 6.9KB、外部 CSS 38.5KB）
+- [ ] 報告能直接讀出「人人都付」與「按需才付」各是多少
+
+---
+
+## 階段八：第一個 island（`<toc-highlight>`）
+
+> ADR [0003](adr/0003-no-ui-framework.md)、[0008](adr/0008-performance-budget-gate.md)
+
+**約 30 行，功能價值不是重點 —— 它的作用是驗證 island 邊界。**
+階段四留下的驗收項「按需載入的元件不計入單頁初始 JS」至今沒有任何案例可構造
+（EC 與搜尋的 JS 都是一般 `<script src>`，驗不到這一層）。用 30 行驗這件事，
+撞線時歸因是明確的；留到階段九／十才驗，撞線時分不出是 island 邊界壞了、
+還是那個套件本來就大。
+
+- [ ] `<toc-highlight>` Web Component —— IntersectionObserver 標記當前章節
+  - [ ] `customElements.define`，不使用 Shadow DOM 樣式隔離，讓 token 穿透
+  - [ ] 無 JS 時 TOC 維持完全可用（純增強，不改變版面、不承載內容）
+  - [ ] `:not(:defined)` 不需隱藏 —— 與搜尋按鈕不同，這裡沒有「按下去沒反應」的元素
+- [ ] 包成 Astro island，`client:idle`
+  - [ ] 鐵則允許 `client:idle` 的理由見 ADR 0003 的修訂紀錄：要禁的是 `client:load`
+- [ ] 更新 `src/components/DocToc.astro` 的註解（目前指向已搬移的 `docs/todo.md`）
+- [ ] 通過階段七修補後的閘門
+
+**驗收**（這是本階段的真正產出）：
+- [ ] **`pageInitialJs` 增量為 0** —— 補上階段四那個打不了勾的項目
+- [ ] 該元件確實出現在產物中，且是獨立 chunk（不在 `sharedJs` 內）
+- [ ] 報告中它落在「按需才付」那一組
+- [ ] 深淺模式、行動裝置、鍵盤操作
+
+---
+
+## 階段九：L3 控制變數面板（GSAP 主力）
+
+> ADR [0005](adr/0005-playground-tiers.md)、[0003](adr/0003-no-ui-framework.md)
+
+**刻意排在 L2 之前** —— 技術上簡單得多、對 GSAP 教學價值更高。
+island 邊界已由階段八驗過，這裡驗的是**帶第三方依賴**的 island。
+
+- [ ] 安裝 `gsap`
+- [ ] 建立 Web Component（`customElements.define`，不使用 Shadow DOM 樣式隔離，讓 token 穿透）
+  - [ ] `<control-panel>` —— `<input type="range">` 群組，即改即看
+  - [ ] `<timeline-scrubber>` —— GSAP timeline 進度控制
+  - [ ] ease 曲線視覺化
+- [ ] 包成 Astro island，`client:visible`
+- [ ] 在 MDX 中直接使用，寫一篇 GSAP 文章驗證
+- [ ] 通過階段四閘門
+  - [ ] `gsap` 為按需產物 —— 依 ADR 0008 開一條屬於它的紅線，不併進 `singleChunk`
+
+**驗收**：未使用該元件的頁面 JS 增量為 0；同頁多個實例互不干擾；
+`gsap` 未被 Rollup 拉進共用 chunk。
+
+---
+
+## 階段十：L2 可執行 Playground
 
 > ADR [0005](adr/0005-playground-tiers.md)、[0006](adr/0006-editor-codemirror.md)
+
+**放在最後**：唯一需要 200KB 級 chunk 的一級，且是全站最複雜的 island。
+邊界（階段八）、第三方依賴（階段九）、閘門語意（階段七）都已先行驗證，
+撞線時才有辦法歸因。
 
 - [ ] 安裝 `@codesandbox/sandpack-client`
 - [ ] 安裝 `codemirror` + 語言套件（`@codemirror/lang-javascript` 等，按需）
@@ -499,39 +591,23 @@ config 註解與閘門的失敗訊息裡。另加一行**不設閘的診斷**輸
   - [ ] 錯誤顯示與 loading 狀態
   - [ ] reset 到初始程式碼
 - [ ] 包成 Astro island，`client:visible`
-- [ ] **驗證中文 IME 輸入正常**（選 CodeMirror 的關鍵理由）
+- [ ] **驗證中文 IME 輸入正常**（選 CodeMirror 的關鍵理由，ADR 0006）
 - [ ] 驗證行動裝置可用性
 - [ ] 通過階段四閘門
+  - [ ] **CodeMirror ~200KB 會直接撞 `singleChunk`（51200 B）** —— 依 ADR 0008
+        的分類，正確處理是排除後另開 `editorRuntime` 一條（比照階段六的 `searchRuntime`），
+        **而非調高 `singleChunk`**。後者會讓那條檢查再也答不出「我們自己的程式碼
+        有沒有意外合併」
+  - [ ] 確認 `sharedJs` / `pageInitialJs` 增量為 0
 
 **驗收**：一篇文章放 5 個 Playground，只有滾動到的才載入。
 
 ---
 
-## 階段八：L3 控制變數面板（GSAP 主力）
-
-> ADR [0005](adr/0005-playground-tiers.md)、[0003](adr/0003-no-ui-framework.md)
-
-**刻意排在 L2 之前** —— 技術上簡單得多、對 GSAP 教學價值更高，且能先驗證 island 邊界設計是否成立。
-
-- [ ] 安裝 `gsap`
-- [ ] 建立第一個 Web Component（`customElements.define`，不使用 Shadow DOM 樣式隔離，讓 token 穿透）
-  - [ ] `<control-panel>` —— `<input type="range">` 群組，即改即看
-  - [ ] `<timeline-scrubber>` —— GSAP timeline 進度控制
-  - [ ] ease 曲線視覺化
-- [ ] 包成 Astro island，`client:visible`
-- [ ] 在 MDX 中直接使用，寫一篇 GSAP 文章驗證
-- [ ] 通過階段四閘門
-
-**驗收**：未使用該元件的頁面 JS 增量為 0；同頁多個實例互不干擾。
-
----
-
 ## 後續（無明確順序）
 
-- [ ] **`<toc-highlight>` scroll spy** —— Web Component + IntersectionObserver（約 30 行），`client:idle`。
-      **階段四閘門已完成，此項已解鎖**：基準線建立在零 JS 的乾淨產物上，因此它是全站第一筆 JS，
-      閘門會直接報出它的真實代價（而不是淹沒在既有 bundle 裡）。也是驗證
-      「`client:idle` 不計入單頁初始 JS」的第一個真實案例
+- [x] ~~`<toc-highlight>` scroll spy~~ —— **已升格為階段八**，不再是「無明確順序」的後續項。
+      它是驗證 island 邊界最便宜的載體，因此排進主線
 - [ ] 中文字型分片子集化 —— `cn-font-split`，僅在排版規則到位且視覺確有需求時啟動（ADR [0004](adr/0004-cjk-font-strategy.md)）
 - [ ] Monaco —— 僅限 TypeScript 型別教學路由，動態 `import()`，需驗證 chunk 分離（ADR [0006](adr/0006-editor-codemirror.md)）
 - [ ] OG image 自動生成
@@ -580,7 +656,9 @@ config 註解與閘門的失敗訊息裡。另加一行**不設閘的診斷**輸
 
 任何新增元件都必須遵守，由階段四的閘門保障：
 
-1. **所有 editor 與重量級互動元件一律是 Astro island + `client:visible`，永遠不進 global bundle。**
+1. **所有 editor 與重量級互動元件一律是 Astro island，禁用 `client:load`，永遠不進 global bundle。**
+   預設 `client:visible`；不改變版面、不承載內容的輕量增強元件可用 `client:idle`
+   （措辭修訂的理由見 ADR [0003](adr/0003-no-ui-framework.md)）。
 2. **同一頁面永遠不出現兩套 editor engine。**
 3. **樣式 token 必須區分中西兩軸，語言切換透過 `:lang()` 而非 class。**
 
