@@ -278,22 +278,60 @@ const checks = [
 
 // -------------------------------------------------------------------- 報告
 
-const lines = [`\n效能預算閘門  ${config.distDir}/  —— ${htmlFiles.length} 頁\n`];
+// 紅線分兩類（ADR 0008）。分類的用途不是整理，而是讓「這筆成本誰付」在報告裡
+// 一眼可見 —— 撞線時兩類的正確反應完全相反：「人人都付」撞線是架構退化，
+// 「按需才付」撞線第一個要問的是「它還是按需的嗎」，多半只是套件變大。
+const CLASSES = [
+  { key: "everyonePays", label: "人人都付", note: "初始載入路徑，每位讀者無條件付費" },
+  { key: "onDemand", label: "按需才付", note: "執行期 dynamic import，只有觸發該功能的讀者才付" },
+];
+
+// 分類與紅線兩邊必須完全對得起來。這個對照本身就是 ADR 0008 那條規則的
+// 機器化：「沒有產物可以因為不屬於任何一條而消失在報告裡」—— 階段九／十
+// 新增按需產物時，忘記開紅線或忘記歸類都會在這裡失敗，而不是靜靜地通過。
+const budgetOf = new Map();
+for (const cls of CLASSES) {
+  const group = config.budgets[cls.key];
+  if (!group) fail(`perf-budget.config.json 缺少 budgets.${cls.key}`);
+  for (const [key, budget] of Object.entries(group)) {
+    if (key.startsWith("_")) continue;
+    budgetOf.set(key, { ...budget, class: cls.key });
+  }
+}
+for (const check of checks) {
+  if (!budgetOf.has(check.key))
+    fail(
+      `紅線缺漏：檢查 ${check.key} 在 perf-budget.config.json 找不到對應紅線。\n` +
+        `  每一項產物都必須歸入 budgets.everyonePays 或 budgets.onDemand，` +
+        `\n  沒有紅線的產物永遠不會失敗（ADR 0008）。`,
+    );
+}
+for (const key of budgetOf.keys()) {
+  if (!checks.some((c) => c.key === key))
+    fail(
+      `紅線 ${key} 沒有對應的檢查 —— 它永遠不會被評估。\n` +
+        `  請補上檢查，或若該產物已不存在就刪掉這條紅線。`,
+    );
+}
+
+const lines = [`\n效能預算閘門  ${config.distDir}/  —— ${htmlFiles.length} 頁`];
 const failures = [];
 
-for (const check of checks) {
-  const budget = config.budgets[check.key];
-  if (!budget) fail(`perf-budget.config.json 缺少 budgets.${check.key}`);
+for (const cls of CLASSES) {
+  lines.push(`\n  ${cls.label}　${cls.note}`);
 
-  const over = check.actual > budget.limit;
-  if (over) failures.push({ ...check, limit: budget.limit });
+  for (const check of checks.filter((c) => budgetOf.get(c.key).class === cls.key)) {
+    const budget = budgetOf.get(check.key);
+    const over = check.actual > budget.limit;
+    if (over) failures.push({ ...check, limit: budget.limit });
 
-  const pct = budget.limit > 0 ? Math.round((check.actual / budget.limit) * 100) : 0;
-  lines.push(
-    `  ${over ? "✗" : "✓"} ${pad(check.label, 24)}` +
-      `${fmt(check.actual).padStart(9)} / ${fmt(budget.limit).padStart(9)}` +
-      `  ${String(pct).padStart(3)}%   ${check.detail}`,
-  );
+    const pct = budget.limit > 0 ? Math.round((check.actual / budget.limit) * 100) : 0;
+    lines.push(
+      `  ${over ? "✗" : "✓"} ${pad(check.label, 24)}` +
+        `${fmt(check.actual).padStart(9)} / ${fmt(budget.limit).padStart(9)}` +
+        `  ${String(pct).padStart(3)}%   ${check.detail}`,
+    );
+  }
 }
 
 console.log(lines.join("\n"));
