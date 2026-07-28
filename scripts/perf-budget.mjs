@@ -45,8 +45,16 @@ const byUrl = new Map(
   files.map((f) => ["/" + relative(distDir, f).split(/[\\/]/).join("/"), f]),
 );
 
+// 搜尋 bundle（ADR 0007）自成一類，理由見下方 searchRuntime / searchIndex
+// 兩條檢查。它不參與 sharedJs / singleChunk —— 那兩條問的是「我們自己的
+// 程式碼有沒有意外合併」，把一支 45KB 的第三方執行期算進去，只會讓
+// 「最大單一 chunk」永遠指向它，那條檢查就再也回答不了原本的問題。
+const SEARCH_DIR = "pagefind/";
+const isSearchFile = (f) => rel(f).startsWith(SEARCH_DIR);
+const searchFiles = files.filter(isSearchFile);
+
 const htmlFiles = files.filter((f) => f.endsWith(".html"));
-const jsFiles = files.filter((f) => f.endsWith(".js"));
+const jsFiles = files.filter((f) => f.endsWith(".js") && !isSearchFile(f));
 const cssFiles = files.filter((f) => f.endsWith(".css"));
 
 const ASSET_EXT = new Set([
@@ -120,6 +128,14 @@ const worstPage = pages.reduce(
 const sharedJs = [...referenceCount].filter(([, n]) => n > 1).map(([f]) => f);
 const sharedBytes = sum(sharedJs.map(sizeOf));
 
+// 搜尋 bundle 內部再分兩類，因為兩者的成長曲線完全不同：執行期是一次性的
+// 固定成本，索引則隨內容線性成長。合成一個數字的話，155KB 的固定成本會把
+// 索引的變化整個蓋掉 —— 而索引正是唯一需要長期盯著的那個。
+const searchRuntime = searchFiles.filter((f) =>
+  /\.(js|pagefind)$/.test(f),
+);
+const searchIndexFiles = searchFiles.filter((f) => !searchRuntime.includes(f));
+
 const largestChunk = jsFiles.reduce(
   (a, b) => (sizeOf(b) > (a ? sizeOf(a) : 0) ? b : a),
   null,
@@ -148,6 +164,30 @@ const checks = [
     label: "單頁初始 JS（最大）",
     actual: worstPage.bytes,
     detail: `${worstPage.path}；共 ${pages.length} 頁`,
+  },
+  {
+    // 執行期：pagefind.js + worker + wasm。體積固定，只有升版才會變動。
+    // 這條的實際作用是回歸測試 —— Pagefind CLI 會無條件產出三套預設 UI
+    // （ADR 0007 明確不採用），由 scripts/prune-search-bundle.mjs 刪除。
+    // 哪天刪除清單失準或腳本沒跑到，這裡會立刻多出 200KB 以上。
+    key: "searchRuntime",
+    label: "搜尋執行期",
+    actual: sum(searchRuntime.map(sizeOf)),
+    detail: searchRuntime.length
+      ? `${searchRuntime.length} 個檔案：${searchRuntime.map(rel).map((p) => p.slice(SEARCH_DIR.length)).join(", ")}`
+      : "未產生（尚未執行 pagefind）",
+  },
+  {
+    // 索引：分片與結果內容。這是全站唯一會隨內容線性成長的產物 ——
+    // 其餘所有數字都由程式碼決定，只有這條由「寫了幾篇文章」決定。
+    // 因此它的紅線語意與別條不同：撞線不代表架構退化，而是該檢討
+    // 索引範圍（哪些頁面真的需要被搜尋）或分片策略。
+    key: "searchIndex",
+    label: "搜尋索引",
+    actual: sum(searchIndexFiles.map(sizeOf)),
+    detail: searchIndexFiles.length
+      ? `${searchIndexFiles.length} 個分片`
+      : "未產生（尚未執行 pagefind）",
   },
   {
     key: "staticAssets",

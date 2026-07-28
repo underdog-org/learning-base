@@ -16,11 +16,19 @@
     },
     "singleChunk": {
       "limit": 51200,
-      "_": "單一 JS chunk 上限。偵測意外的依賴合併（例如 barrel file 把整個 editor 拉進同一個 chunk）。基準線 0。"
+      "_": "單一 JS chunk 上限。偵測意外的依賴合併（例如 barrel file 把整個 editor 拉進同一個 chunk）。基準線 0。階段六起排除 dist/pagefind/ —— 那是第三方執行期，計入的話「最大單一 chunk」會永遠指向 pagefind.js（45555 B，佔 89%），這條檢查就再也回答不了「我們自己的程式碼有沒有意外合併」這個問題。搜尋 bundle 改由 searchRuntime 涵蓋。"
     },
     "pageInitialJs": {
       "limit": 8192,
       "_": "單一頁面初始載入的 JS（<script src> + inline script + modulepreload）。client:visible / client:idle 的元件不計入，因為那是執行期才抓的。階段五起為 2523 B，且與共用 JS 是同一支 —— 有程式碼區塊的頁面就付這筆，沒有的頁面為 0。上限維持 8192 未動。"
+    },
+    "searchRuntime": {
+      "limit": 163840,
+      "_": "Pagefind 執行期（pagefind.js + pagefind-worker.js + wasm）。ADR 0007。體積由 Pagefind 版本決定，只有升版會變動，基準線 155009 B。這條是回歸測試而非預算：Pagefind CLI 無條件產出三套不使用的預設 UI（234KB JS + 63KB CSS），由 scripts/prune-search-bundle.mjs 刪除；刪除清單一旦失準，這裡會立刻爆掉。餘裕 8831 B 只夠吸收小幅升版差異，這是刻意的。注意這些檔案不進 sharedJs / singleChunk —— 它們是執行期 dynamic import，沒有任何 HTML 引用。"
+    },
+    "searchIndex": {
+      "limit": 131072,
+      "_": "Pagefind 索引分片（fragment/ + index/ + meta）。ADR 0007。全站唯一隨內容線性成長的產物 —— 其餘數字都由程式碼決定，只有這條由「寫了幾篇文章」決定。基準線 21536 B / 9 頁 / 784 詞，約每頁 2.4KB。上限設在 128KB，約當 50 篇文章，屆時應檢討的是索引範圍與分片策略，而不是直接調高。撞這條線不代表架構退化，這點與其他各條不同。"
     },
     "staticAssets": {
       "limit": 32768,

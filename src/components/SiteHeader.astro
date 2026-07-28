@@ -6,6 +6,7 @@
  * 開關、Esc 關閉、點擊外部關閉、focus 管理全部由瀏覽器處理，零 JavaScript。
  */
 import { sortedTopics } from "../utils/topics";
+import SiteSearch from "./SiteSearch.astro";
 
 interface Props {
   activeTopic?: string;
@@ -57,6 +58,8 @@ const topics = sortedTopics();
         }
       </ul>
     </nav>
+
+    <SiteSearch />
   </div>
 
   {/* 閱讀進度條。純 CSS 捲動驅動動畫，零 JavaScript —— 見 doc-layout.css。

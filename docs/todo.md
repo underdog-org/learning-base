@@ -8,23 +8,33 @@
 
 ## 現況
 
-**階段一至五完成並通過人工驗證**（階段五的行動裝置回測未做，待下次跨裝置驗收）。
+**階段一至六完成並通過人工驗證**，含行動裝置、深色模式、Firefox / Safari 的跨裝置回測
+（階段五遺留的行動裝置項目也在此輪一併補驗）。
 效能閘門在零 JS 的乾淨產物上設好基準線，之後每次 `pnpm build` 都會擋 ——
-階段五的 EC 複製鈕成為全站第一筆 client JS，代價（2523 B）由閘門直接報出，
-而非淹沒在既有 bundle 裡，這正是把閘門排在互動元件之前的兌現點。
+階段五的 EC 複製鈕成為全站第一筆 client JS（2523 B），階段六的搜尋在索引當天就撞線兩次
+（Pagefind 無條件產出的預設 UI），兩次都是由閘門而非人工發現，這正是把閘門排在
+互動元件之前的兌現點。
 
-下一步建議 `<toc-highlight>` scroll spy —— 它約 30 行，且是驗證
-「`client:idle` 不計入單頁初始 JS」的第一個真實案例（EC 的 JS 是一般 `<script src>`，
-驗不到這一層）。
+**下一步有兩個候選，建議先做後者**：
 
-- `astro@^7.1.4` + `@astrojs/mdx@^7.0.4` + `astro-expressive-code@^0.44.1`（pnpm workspace）
+- `<toc-highlight>` scroll spy —— 約 30 行，是驗證「`client:idle` 不計入單頁初始 JS」的
+  第一個真實案例（EC 與搜尋的 JS 都是一般 `<script src>`，驗不到這一層）
+- **先修 `css` 這條紅線的量測語意**（見階段六末的待決事項）。目前它顯示 99%，
+  但那個數字把 12 份內嵌副本算成 0、把 1 份共用檔算成全額 —— 在不知道真實餘裕的情況下
+  加任何新元件，都會是在對著錯的數字做決定
+
+- `astro@^7.1.4` + `@astrojs/mdx@^7.0.4` + `astro-expressive-code@^0.44.1` + `pagefind@1.5.2`
 - 效能閘門：`scripts/perf-budget.mjs` + `perf-budget.config.json`，接在 `build` 之後
+- 搜尋：`pnpm search:index`（`pagefind --site dist` + `scripts/prune-search-bundle.mjs`），
+  夾在建置與閘門之間
 - Markdown 管線：`remark-cjk-friendly`、`rehype-autolink-headings`、兩個自訂 rehype 外掛
-- 12 頁靜態產物，**共用 client JS 2523 B**（EC 複製鈕），CSS 約 31KB（自有 14KB + EC 17KB）
+- 12 頁靜態產物（索引 9 頁），**共用 client JS 6.6KB**（EC 複製鈕 2.5 + 搜尋 4.2），
+  CSS 35.5KB，另有按需載入的 Pagefind 執行期 151KB + 索引 21KB
 - 樣式：`index / reset / tokens / base / prose / code / doc-layout / topics`
   （`code.css` 於階段五縮減為只剩一條 CJK 規則，視覺樣式改由 EC 的 `styleOverrides` 承擔）
 - 資料層：`utils/nav.ts`、`utils/toc.ts`、`utils/topics.ts`（皆為 build 期純函式）
 - 驗收頁：`/style-guide`（手寫 HTML，排版）、`/style-guide/markdown`（MDX，管線）
+  —— 兩者與首頁皆以 `searchable={false}` 排除於搜尋索引之外
 - 四個主題：`typescript`（含二層巢狀）、`gsap`、`ai-ml`、`claude`
 
 ---
@@ -270,21 +280,105 @@
 - [x] 深淺模式渲染
 - [x] 複製鈕實際點擊
 - [x] diff 標記與語法著色目測
-- [ ] 行動裝置 —— 未驗，併入下次跨裝置回測
+- [x] 行動裝置 —— 於階段六的跨裝置回測一併完成
 
 ---
 
-## 階段六：搜尋
+## 階段六：搜尋 ✅
 
 > ADR [0007](adr/0007-search-pagefind.md) 
 
-- [x] 定案 ADR 0007
-- [ ] 若採用 Pagefind：
-  - [ ] 安裝 `pagefind`，加入 `astro build` 之後的 pipeline
-  - [ ] 驗證中文分詞召回率（先做這步再寫 UI）
-  - [ ] 自建搜尋 UI（Web Component），**不使用 `@pagefind/default-ui`**
-  - [ ] `client:idle` 或使用者觸發時載入
-  - [ ] 通過階段四閘門
+- [x] 定案 ADR 0007（`adr/README.md` 索引表原本仍是「待決定」，三處狀態已對齊）
+- [x] 安裝 `pagefind`（1.5.2，devDependency），接進 pipeline
+  - [x] 順序：`astro build && pnpm search:index && node scripts/perf-budget.mjs` ——
+        索引必須夾在建置與閘門之間，排在閘門之後等於閘門量不到它
+  - [x] 確認取得 **extended** 二進位（`pagefind_extended`，55MB）—— CJK 分詞只存在於
+        extended release，拿到一般版會靜默退化成整段中文一個詞（build 照過、UI 照在、就是搜不到）
+- [x] 標記索引範圍
+  - [x] `DocLayout` 的 `<main>` 加 `data-pagefind-body` —— Pagefind 只看得到 HTML，
+        沒有 component 的概念；側邊欄與 TOC 若一併進索引，等於每頁重複收錄整棵導航樹
+  - [x] `searchable` prop 排除驗收頁與首頁（12 頁 → 索引 9 頁）。
+        嚴格說這個 false 分支是多餘的（沒標 body 的頁面本就整頁不進索引），
+        但那是靠沉默生效，讀 layout 的人分不出「刻意不收」與「漏標」
+  - [x] `PrevNext` 加 `data-pagefind-ignore` —— 它在 `.prose` 之內，
+        但文字是「別篇文章的標題」，不排除的話搜某個標題會連帶命中它的前後鄰居
+- [x] **驗證中文分詞召回率**（先做這步再寫 UI）—— 18 個查詢，期望值來自對 `src/content` 的
+      grep 而非印象。結論：**召回沒問題，精確度有結構性的洞，且分數門檻救不了**。
+      完整數據與對 UI 的三條約束見 ADR [0007](adr/0007-search-pagefind.md)
+  - [x] `lang="zh-Hant"` 已足夠，不需要 `--force-language zh`（兩者詞數同為 784）
+  - [x] `"wasm": null` 與 stemming 警告都是 CJK 的正常現象，非退化
+- [x] 通過階段四閘門（新增兩條紅線，見下）
+- [x] 自建搜尋 UI（`src/components/SiteSearch.astro`），**不使用 `@pagefind/default-ui`**
+  - [x] 三層載入：HTML（每頁，一顆按鈕與空 `<dialog>`）／元件 JS 4.2KB（12 頁共用）／
+        Pagefind 執行期 176KB（**只在讀者第一次打開搜尋時 import**）
+  - [x] `await import()` 的路徑放進變數 + `/* @vite-ignore */` ——
+        `/pagefind/pagefind.js` 在 build 期還不存在，讓 Vite 靜態分析會中斷建置
+  - [x] dev 模式優雅降級（`/pagefind/` 為 404）—— 訊息直接寫出該執行什麼指令，
+        而不是只說「搜尋失敗」。已在 `astro dev` 實測
+  - [x] 少於 2 字元不觸發；摘要顯示 `<mark>`；不暴露空白分隔語法
+  - [x] 原生 `<dialog>` + `showModal()` —— 焦點陷阱、Esc、inert 背景、`::backdrop`
+        全部由瀏覽器負責
+  - [x] **IME**：`compositionstart` / `compositionend` 期間不送查詢。
+        注音／拼音的選字過程會讓 `input` 帶著中間狀態不斷觸發，
+        不擋的話查的是使用者還沒打完的字
+  - [x] 查詢序號防競態（索引分片的回應順序不保證與送出順序相同）
+  - [x] ↑↓ 移動真實焦點而非 `aria-activedescendant`；結果本身是真連結
+  - [x] 元件升級前 `site-search:not(:defined) { display: none }` ——
+        沒有 JS 就沒有搜尋，一顆按下去沒反應的按鈕比沒有按鈕更糟
+
+**實作時踩到的五個坑**（全部無錯誤訊息，只能靠實際打開瀏覽器看）：
+
+1. **`<dialog>` 的 display 必須掛在 `[open]` 上**。作者樣式的優先權高於 UA 樣式
+   （與特異性無關，是層疊來源的差別），無條件寫 `display: flex` 會讓對話框
+   在頁面載入時就攤在內容上，且沒有 backdrop。
+2. **JS 建立的節點吃不到 Astro 的 scoped style**。scoped 是靠建置期在標記上加
+   `data-astro-cid-*` 實作的，`createElement` 出來的元素沒有那個屬性。
+   症狀是結果變成一串沒有樣式的藍色底線連結。祖先選擇器維持 scoped、
+   後代包 `:global()`，作用域仍然關得住。
+3. **`type="search"` 會吃掉 Esc**（拿去清空自己），鍵盤事件傳不到 `<dialog>`，
+   Esc 關不掉對話框 —— 而且第一次按下去看起來「有反應」，很容易被當成正常。改用 `type="text"`。
+4. **自訂元素預設 `display: inline`**，在 header 的 flex 容器裡被壓成 26px，
+   按鈕被自己的宿主切掉。需要 `display: flex; flex-shrink: 0`。
+5. **標題錨點的 `#` 會被算進標題文字**，搜尋結果的章節標題全變成「名稱不重要 #」。
+   在 `rehype-autolink-headings` 的 properties 加 `data-pagefind-ignore`，
+   且值必須是 `"all"` 而非 `true` —— hast 會輸出成 `="true"`，那不是 Pagefind
+   認得的 scope，會靜默失效。
+
+**人工驗收**（`pnpm build && pnpm preview`，Chrome）：
+- [x] ⌘K 開啟、Esc 關閉並清空、點擊結果導向正確錨點且主題色跟著換
+- [x] 中文查詢（IME 輸入）、`<mark>` 標記、章節子結果去重
+- [x] 少於 2 字元提示、查無結果提示、dev 模式降級提示
+- [x] 400px 窄螢幕：觸發鈕縮為圖示、對話框與結果可讀
+- [x] 真實行動裝置、深色模式
+- [x] Firefox / Safari（`<dialog>`、`:defined`、`light-dark()` 皆已 Baseline）
+
+**閘門變更**：`dist/pagefind/` 排除於 `singleChunk` 之外，另新增兩條 ——
+`searchRuntime` 155009 B（固定成本，實為回歸測試）與 `searchIndex` 21536 B / 9 頁
+（全站唯一隨內容線性成長的產物，約每頁 2.4KB）。理由見 ADR 0007「產物與預算」。
+
+**`scripts/prune-search-bundle.mjs`**：Pagefind CLI 沒有「只產索引、不產 UI」的選項，
+一律寫出三套預設 UI + highlight 腳本（408KB）。它們沒有任何頁面引用，但會一起被部署，
+也會被閘門看見 —— 與其為死檔放寬紅線，不如刪掉。已實測刪除清單失準時閘門會報 497.5 KB。
+
+**閘門結果**（12 頁）：共用 JS 6.6KB／8.0 ｜ 單頁初始 JS 6.6KB／8.0 ｜ 最大 chunk 4.2KB／50
+｜ 搜尋執行期 151.4KB／160 ｜ 搜尋索引 21.3KB／128 ｜ CSS 35.5KB／36.0（gzip 9.0KB）
+
+**紅線未動。** 但 CSS 已到 99%、共用 JS 到 83%，階段七的 island 幾乎沒有餘裕 ——
+下一個元件很可能要先處理下面這條待決事項。
+
+**待決：`css` 這條紅線量錯了東西。** Astro 的 `inlineStylesheets: "auto"` 會把小於
+4KB 的 scoped CSS 直接內嵌進每一份 HTML，而閘門只加總 `.css` 檔案 —— 內嵌的部分
+完全不在統計內。階段六加入 SiteSearch 後 scoped CSS 越過 4KB 門檻、由內嵌轉為外部檔，
+於是閘門顯示 CSS 從 30.9KB「暴增」到 35.5KB。實際量測：
+
+| | 外部 CSS 檔 | HTML 內嵌 | 合計 |
+|---|---|---|---|
+| 無 SiteSearch | 31628 B | 50727 B | 82355 B |
+| 有 SiteSearch | 36229 B | 39441 B | **75670 B** |
+
+**實際送出的 CSS 總量少了 6685 B**（12 份內嵌副本變成 1 份共用檔），閘門卻報成增加。
+這條檢查目前會獎勵「把 CSS 複製 12 份塞進 HTML」。修法是把 HTML 內的 `<style>`
+一併計入，或改成量「單頁 CSS」（與 `pageInitialJs` 同一個語意）—— 兩者都需要重設基準線。
 
 ---
 

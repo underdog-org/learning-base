@@ -4,6 +4,10 @@
  *
  * 複用 DocLayout 但不提供 sidebar / toc slot —— 骨架不碰資料，
  * 因此三欄自動降為單欄，不需要另一個 layout。
+ *
+ * 不進搜尋索引：整頁只有主題卡片，文字全是各主題的名稱與簡介，
+ * 而那些字在對應的主題總覽頁上都有。收錄它只會讓每個主題名稱的
+ * 搜尋結果多出一筆指向首頁的重複項。
  */
 import { getCollection } from "astro:content";
 import DocLayout from "../layouts/DocLayout.astro";
@@ -19,6 +23,7 @@ const topics = sortedTopics().map((topic) => ({
 <DocLayout
   title="learning-base"
   description="對外的書籍與知識庫：TypeScript、GSAP、AI/ML、Claude"
+  searchable={false}
 >
   <div class="prose">
     <h1>learning-base</h1>

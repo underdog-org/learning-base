@@ -5,6 +5,11 @@
  * 這個元件完全不碰資料 —— 它只知道「有三個位置」，不知道裡面放什麼。
  * 因此它同樣能被主題首頁、索引頁等非文章頁面複用。
  * 版面規則在 src/styles/doc-layout.css（scoped style 無法跨越 slot 邊界）。
+ *
+ * 搜尋索引範圍（ADR 0007）也定義在這裡：Pagefind 掃的是產出的 HTML，
+ * 它沒有 component 的概念，只看得到標記。三欄之中只有中欄是內容，
+ * 側邊欄與 TOC 若一併進索引，等於每一頁都重複收錄整棵導航樹，
+ * 召回結果會被自己的導航稀釋。因此 data-pagefind-body 下在 <main> 上。
  */
 import BaseLayout from "./BaseLayout.astro";
 import SiteHeader from "../components/SiteHeader.astro";
@@ -15,9 +20,18 @@ interface Props {
   /** 決定 --accent-* 色階，見 src/styles/topics.css */
   topic?: string;
   lang?: string;
+  /**
+   * 是否納入搜尋索引。驗收頁與純導航頁傳 false。
+   *
+   * 嚴格說來這個 false 分支是多餘的 —— Pagefind 的規則是：只要站上有任何
+   * 一頁帶了 data-pagefind-body，沒帶的頁面就整頁不進索引，因此不標記即已
+   * 排除。但那是一種「靠沉默生效」的排除，讀 layout 的人看不出這頁是刻意
+   * 不收錄還是漏了標記。明確寫出 ignore 讓意圖留在程式碼裡。
+   */
+  searchable?: boolean;
 }
 
-const { title, description, topic, lang } = Astro.props;
+const { title, description, topic, lang, searchable = true } = Astro.props;
 ---
 
 <BaseLayout title={title} description={description} lang={lang}>
@@ -26,7 +40,12 @@ const { title, description, topic, lang } = Astro.props;
 
     <div class="doc-grid">
       <slot name="sidebar" />
-      <main class="doc-main" id="main">
+      <main
+        class="doc-main"
+        id="main"
+        data-pagefind-body={searchable ? true : undefined}
+        data-pagefind-ignore={searchable ? undefined : "all"}
+      >
         <slot />
       </main>
       <slot name="toc" />

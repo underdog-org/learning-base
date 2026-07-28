@@ -1,6 +1,11 @@
 ---
 /**
  * 上／下一篇。順序來自 flattenNav()，與側邊欄的顯示順序恆定一致。
+ *
+ * 它位在 <article class="prose"> 之內，因此落在 DocLayout 的
+ * data-pagefind-body 範圍裡 —— 但它的文字是「別篇文章的標題」。
+ * 不排除的話，每篇文章都會夾帶前後兩篇的標題進索引，搜尋某個標題
+ * 會同時命中真正那篇與它的前後鄰居。故標記 data-pagefind-ignore。
  */
 import type { Siblings } from "../utils/nav";
 
@@ -14,7 +19,7 @@ const { prev, next } = siblings;
 
 {
   (prev || next) && (
-    <nav class="prevnext" aria-label="上下篇導航">
+    <nav class="prevnext" aria-label="上下篇導航" data-pagefind-ignore>
       {prev ? (
         <a class="prevnext__item" href={prev.href} rel="prev">
           <span class="prevnext__dir">← 上一篇</span>
