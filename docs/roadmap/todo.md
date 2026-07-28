@@ -19,13 +19,17 @@
 之後，閘門有一段時間量的是不存在的路徑，回報 `0 B` 與「全數通過」。經過見「階段六補」。
 以下所有數字都是修正之後的。
 
+**階段七已完成**：`dist/server/` 的盲區改由程式碼擋著（原本只有一條 JSON 註解），
+`inlineStylesheets` 改為 `"never"`，紅線依「人人都付 / 按需才付」分組。
+量測本身的可信度到此為止都已處理過一輪，之後的 island 才有可歸因的數字可看。
+
 **剩餘階段已於 2026-07-28 重排**（原本階段七是 L2、階段八是 L3，而階段八的內文
 寫著「刻意排在 L2 之前」—— 編號與內文互相否定，且與 ADR [0005](adr/0005-playground-tiers.md)
 牴觸）。新順序與其判準：
 
 | 階段 | 內容 | 為什麼在這 |
 |---|---|---|
-| 七 | 閘門修補 | 在最重的依賴進來之前，先讓量測可信 |
+| 七 ✅ | 閘門修補 | 在最重的依賴進來之前，先讓量測可信 |
 | 八 | `<toc-highlight>` | 最便宜的 island 邊界驗證，兌現階段四未完成的驗收項 |
 | 九 | L3 控制變數面板 | 對齊 ADR 0005 原意 |
 | 十 | L2 Playground | 唯一需要 200KB 級 chunk 的一步，放最後 |
@@ -38,14 +42,16 @@ adapter 那次報的是 `0 B` 與「全數通過」。
 - `astro@^7.1.4` + `@astrojs/mdx@^7.0.4` + `astro-expressive-code@^0.44.1` + `pagefind@1.5.2`
 - 部署：`@astrojs/cloudflare@^14.1.5` + `wrangler` —— 目前所有路由皆預渲染，
   `dist/server/` 為空，adapter 實際只負責產物佈局（`dist/client/`）
-- 效能閘門：`scripts/perf-budget.mjs` + `perf-budget.config.json`（`distDir: "dist/client"`），
-  接在 `build` 之後
+- 效能閘門：`scripts/perf-budget.mjs` + `perf-budget.config.json`（`distDir: "dist/client"`、
+  `serverDir: "dist/server"`），接在 `build` 之後。紅線分「人人都付 / 按需才付」兩組，
+  報告依此分段（階段七）
 - 搜尋：`pnpm search:index`（`pagefind --site dist/client` + `scripts/prune-search-bundle.mjs`），
   夾在建置與閘門之間。**`dist/client` 而非 `dist`** —— Cloudflare adapter 的產物位置，理由見階段六補
 - Markdown 管線：`remark-cjk-friendly`、`rehype-autolink-headings`、兩個自訂 rehype 外掛
 - 12 頁靜態產物（索引 9 頁），**共用 client JS 6.9KB**（EC 複製鈕 2.5 + 搜尋 4.5），
-  外部 CSS 38.5KB，另有按需載入的 Pagefind 執行期 151KB + 索引 21KB
-  —— 以上為階段六補修正閘門目錄後的數字，此前閘門讀到的是 0
+  外部 CSS 46.9KB／7 支、內嵌 CSS 0，另有按需載入的 Pagefind 執行期 151KB + 索引 21KB
+  —— JS 為階段六補修正閘門目錄後的數字（此前閘門讀到的是 0），
+  CSS 為階段七改用 `inlineStylesheets: "never"` 之後的數字
 - 樣式：`index / reset / tokens / base / prose / code / doc-layout / topics`
   （`code.css` 於階段五縮減為只剩一條 CJK 規則，視覺樣式改由 EC 的 `styleOverrides` 承擔）
 - 資料層：`utils/nav.ts`、`utils/toc.ts`、`utils/topics.ts`（皆為 build 期純函式）
@@ -430,6 +436,9 @@ config 註解與閘門的失敗訊息裡。另加一行**不設閘的診斷**輸
   | `"auto"`（現況） | 35.5 KB | 3.8 KB | **39.3 KB** |
   | `"never"` | 43.9 KB | 0 B | **39.3 KB** |
 
+  > 這組數字量於階段六補修正閘門目錄之前，外部 CSS 一律少 3.0 KB。
+  > 階段七實作時的實測值見該節，結論（首次載入不變、導覽成本歸零）不受影響。
+
   **首次載入完全相同**（同一批 bytes，只是換了送法），但之後每一次站內導覽從最多
   3.8 KB 變成 0。Astro 預設的 `"auto"`（<4KB 即內嵌）優化的是「只看一頁就走」的落地頁，
   與文檔站的側寫相反。唯一的代價是首屏多一個請求。
@@ -463,13 +472,13 @@ config 註解與閘門的失敗訊息裡。另加一行**不設閘的診斷**輸
   - [x] 改 `distDir: "dist/client"` 後數字回來：共用 JS 6.9KB、外部 CSS 38.5KB
   - [x] `_distDir` / `_distDir_gap` 兩條註記寫進 config，記錄病灶與下述盲區
 
-- [ ] **待辦：讓 `dist/server/` 的盲區發得出聲。**（已排入**階段七**，是它排在所有 island
-      之前的主要理由）目前 `distDir` 指向 client 沒有漏掉
+- [x] ~~**待辦：讓 `dist/server/` 的盲區發得出聲。**~~ —— **已於階段七完成。**
+      目前 `distDir` 指向 client 沒有漏掉
       任何東西（server 為空），但哪天出現 on-demand 路由，worker 的 JS 就完全不在閘門
       視野內 —— 而且是**靜默地**不在：閘門不會變紅，只是繼續回報 client 的數字並通過。
       修法不是把 `distDir` 改回 `dist`（會重現上面的 key 對不上），而是在
       `scripts/perf-budget.mjs` 前置檢查 `dist/server/` 是否出現 `.js`，有就直接失敗並
-      說明原因。**在那之前，擋在盲區前面的只有一條 JSON 註解 —— 註解擋不住，只能提醒。**
+      說明原因。~~在那之前，擋在盲區前面的只有一條 JSON 註解 —— 註解擋不住，只能提醒。~~
 
 **同一輪一併處理的三件事**（來自 Review，與 adapter 無關）：
 
@@ -494,7 +503,7 @@ config 註解與閘門的失敗訊息裡。另加一行**不設閘的診斷**輸
 
 ---
 
-## 階段七：閘門修補（在任何 island 之前）
+## 階段七：閘門修補（在任何 island 之前）✅
 
 > ADR [0008](adr/0008-performance-budget-gate.md)
 
@@ -502,31 +511,53 @@ config 註解與閘門的失敗訊息裡。另加一行**不設閘的診斷**輸
 200KB 級的依賴 —— 那正是最不能容忍閘門說謊的時刻。階段六補已經示範過一次
 「綠燈的謊」長什麼樣子，這階段是不讓它再發生一次。
 
-- [ ] **`dist/server/` 盲區發得出聲**（承接階段六補的待辦）
-  - [ ] `scripts/perf-budget.mjs` 前置檢查：`dist/server/` 出現 `.js` 就直接失敗，
+- [x] **`dist/server/` 盲區發得出聲**（承接階段六補的待辦）
+  - [x] `scripts/perf-budget.mjs` 前置檢查：`dist/server/` 出現 `.js` 就直接失敗，
         並在訊息裡說明「有 on-demand 路由，worker 的 JS 不在閘門視野內」
-  - [ ] **不是**把 `distDir` 改回 `dist` —— 那會重現階段六補的 key 對不上問題
-  - [ ] 移除／更新 `perf-budget.config.json` 的 `_distDir_gap` 註記
-        （那條註記的存在理由就是「還沒有程式碼擋在盲區前面」）
-- [ ] **`inlineStylesheets: "never"`**（階段六待決事項已定案採用，資料見該節的表）
-  - [ ] `astro.config.mjs` 設 `build.inlineStylesheets: "never"`
-  - [ ] `cssCacheable` 同步調高（43.9 KB 會貼在 44.0 KB 上限），理由寫進 commit message
-        —— 那是重新定義的連帶調整而非放寬
-  - [ ] **`pageInlineCss` 的語意跟著變**：它從「刻意設緊的預算」變成「應恆為 0 的回歸測試」。
-        config 註解裡「撞線的正確反應是改成 `"never"`」這句話在採用之後就失效了 ——
-        屆時撞線代表有東西繞過設定重新內嵌，那是退化而非成長，註解必須改寫，否則會指向
-        一個已經做過的動作
-  - [ ] 首屏多一個請求是已知且接受的代價（見階段六的表：首次載入 bytes 完全相同）
-- [ ] **紅線分類落地**（ADR 0008 的「人人都付 / 按需才付」）
-  - [ ] `perf-budget.config.json` 的 `budgets` 依兩類分組，`_usage` 補上分類原則
-  - [ ] 閘門輸出按分類分段，讓「這筆成本誰付」在報告裡一眼可見
-  - [ ] 為階段九／十預留：新增按需產物時必須同時開一條紅線，只排除不設限等於
-        讓那筆體積從報告裡消失
+  - [x] 目錄由 config 的 `serverDir` 顯式指定，不從 `distDir` 推導 ——
+        推導會讓「閘門知道有兩個目錄」這件事變成隱含的，而這一階段要消滅的正是隱含
+  - [x] **不是**把 `distDir` 改回 `dist` —— 那會重現階段六補的 key 對不上問題
+  - [x] `_distDir_gap` 改寫為 `_serverDir`，記錄病灶與「現在擋在前面的是程式碼而非註解」
+- [x] **`inlineStylesheets: "never"`**（階段六待決事項已定案採用）
+  - [x] `astro.config.mjs` 設 `build.inlineStylesheets: "never"`，實測數字寫進註解
+  - [x] `cssCacheable` 由 45056 調高至 53248，理由寫進 commit message
+        —— 那是重新定義的連帶調整而非放寬（同一批 bytes 從 `pageInlineCss` 搬過來，
+        而該條上限同時由 6144 收到 0，兩條合起來是收緊）
+  - [x] **`pageInlineCss` 語意改為「應恆為 0 的回歸測試」**，上限設 0。
+        config 註解與腳本失敗訊息一併改寫 —— 原本那句「撞線的正確反應是改成 `"never"`」
+        在採用之後會指向一個已經做過的動作
+  - [x] 每頁多一個請求是已知且接受的代價（文檔頁 `<link>` 3 → 4 支）
+- [x] **紅線分類落地**（ADR 0008 的「人人都付 / 按需才付」）
+  - [x] `budgets` 巢狀分為 `everyonePays` / `onDemand`，`_classes` 記錄兩類的語意
+        與「撞線時的正確反應完全相反」
+  - [x] 閘門輸出按分類分段
+  - [x] 為階段九／十預留：腳本強制 checks 與 budgets 兩邊完全對得起來 ——
+        檢查沒有紅線、或紅線沒有檢查，都直接失敗。**這是 ADR 0008「沒有產物可以
+        因為不屬於任何一條而消失在報告裡」的機器化**：忘記開紅線與忘記歸類都過不了
+
+**閘門結果**（12 頁，乾淨 build）：
+
+| 類別 | 項目 | 實測 | 上限 |
+|---|---|---|---|
+| 人人都付 | 共用 JS | 6.9 KB | 8.0 |
+| | 最大單一 chunk | 4.5 KB | 50.0 |
+| | 單頁初始 JS | 6.9 KB | 8.0 |
+| | 字型與靜態資源 | 1.4 KB | 32.0 |
+| | 外部 CSS（可快取） | 46.9 KB / 7 支 | 52.0 |
+| | 單頁內嵌 CSS | **0 B** | 0（回歸測試）|
+| 按需才付 | 搜尋執行期 | 151.4 KB | 160.0 |
+| | 搜尋索引 | 21.3 KB | 128.0 |
+
+診斷（不設閘）最貴單頁首次載入 CSS **42.3 KB，與 `"auto"` 時完全相同** ——
+同一批 bytes 換了送法，之後每次站內導覽從 3.8 KB 變成 0。
 
 **驗收**：
-- [ ] 手動在 `dist/server/` 放一支 `.js` → build 以 exit 1 失敗，訊息說得出原因
-- [ ] `pnpm build` 通過，數字與階段六補一致（共用 JS 6.9KB、外部 CSS 38.5KB）
-- [ ] 報告能直接讀出「人人都付」與「按需才付」各是多少
+- [x] 手動在 `dist/server/` 放一支 `.js` → exit 1，訊息說得出原因與修法方向
+      （`pnpm perf`，即 build 的最後一步）
+- [x] 構造「檢查沒有紅線」與「紅線沒有檢查」兩種缺漏 → 皆 exit 1
+- [x] `pnpm build`（`rm -rf dist` 後）通過，JS 數字與階段六補一致（共用 JS 6.9KB）；
+      CSS 依 `"never"` 重新定義為外部 46.9KB / 內嵌 0
+- [x] 報告能直接讀出「人人都付」與「按需才付」各是多少
 
 ---
 
@@ -619,41 +650,6 @@ island 邊界已由階段八驗過，這裡驗的是**帶第三方依賴**的 is
 - [ ] RSS / sitemap
 - [ ] 深色模式（token 已預留，需補切換 UI）
 - [ ] `class-variance-authority` —— 若 variant 複雜度上升再評估（build 期執行，client 零成本）
-
----
-
-## 內容清單
-
-- [ ] Claude & Harness Engineer & Loop Engineer
-
-**TS**
-- [ ] TypeScript
-- [ ] Zod
-- [ ] Monorepo & Pnpm & Workspace
-
-**Frontend**
-- [ ] React
-- [ ] React Native
-- [ ] UI & Shadcn UI
-- [ ] GSAP & Web Animation
-
-**Backend**
-- [ ] Drizzle ORM
-      - [ ] Database Design & Schema
-      - [ ] Postgres Deep-Dive
-- [ ] API & GraphQL & gRPC
-- [ ] Authentication & BetterAuth
-- [ ] Fastify
-
-**Other**
-- [ ] Computer Science
-      - [ ] Network
-- [ ] Cybersecurity
-- [ ] LeetCode & DSA
-
-<!-- **Daily** -->
-<!-- - [ ] IELTS & English -->
-<!-- - [ ] Finance & Investment -->
 
 ---
 

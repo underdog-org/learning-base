@@ -37,6 +37,39 @@ try {
   fail(`找不到產物目錄 ${config.distDir}/，請先執行 astro build`);
 }
 
+// ------------------------------------------------------- 盲區前置檢查
+//
+// 以下所有檢查都以 distDir（Cloudflare adapter 的 client 產物）為基準，
+// worker 那半邊完全不在視野內。目前所有路由都預渲染、serverDir 為空，
+// 因此沒有漏掉任何東西 —— 但這是「現在剛好成立」而非「設計上成立」：
+// 哪天出現 on-demand 路由，閘門不會變紅，只會繼續回報 client 的數字並
+// 通過。這正是階段六補那個 bug 的形狀（失敗看起來跟成功一模一樣），
+// 所以這裡寧可過度反應：serverDir 一出現 JS 就直接失敗，逼人回來處理，
+// 而不是讓一筆沒人量的體積悄悄上線。
+const serverDir = config.serverDir ? resolve(root, config.serverDir) : null;
+if (serverDir) {
+  let serverFiles = [];
+  try {
+    serverFiles = walk(serverDir);
+  } catch {
+    // 目錄不存在 = adapter 沒產出 worker，沒有盲區可言。
+  }
+  const serverJs = serverFiles.filter((f) => /\.(js|mjs|cjs)$/.test(f));
+  if (serverJs.length > 0) {
+    fail(
+      `${config.serverDir}/ 出現 ${serverJs.length} 支 JS，代表已有 on-demand 路由。\n` +
+        `  ${serverJs.map((f) => relative(serverDir, f)).slice(0, 5).join("\n  ")}` +
+        (serverJs.length > 5 ? `\n  …等 ${serverJs.length} 支` : "") +
+        `\n\n  閘門的每一條檢查都以 ${config.distDir}/ 為基準，worker 的 JS 不在視野內：` +
+        `\n  它不會被計入任何一條紅線，而閘門仍會回報「全數通過」—— 那是綠燈的謊。` +
+        `\n\n  修法是讓本腳本明確認知兩個目錄（client 走現有的「由頁面反推」路徑，` +
+        `\n  server 另外量並開一條屬於它的紅線），而不是把 distDir 改回 dist ——` +
+        `\n  後者會重現「頁面裡的 /_astro/… 對不上 /client/_astro/…」的 key 問題，` +
+        `\n  結果是所有由頁面反推的檢查一起讀成 0。`,
+    );
+  }
+}
+
 const sizeOf = (path) => statSync(path).size;
 const gzipOf = (path) => gzipSync(readFileSync(path)).length;
 
@@ -233,15 +266,11 @@ const checks = [
     detail: `${externalCss.length} 支，gzip ${fmt(sum(externalCss.map(gzipOf)))}`,
   },
   {
-    // 內嵌樣式：每一次頁面導覽都重付一次，且無法快取。在站內導覽為主的
-    // 側寫下，這才是會被瀏覽頁數乘上去的那一項，紅線刻意設緊。
-    //
-    // 撞線的正確反應是把 astro.config.mjs 的 inlineStylesheets 改為 "never"，
-    // 讓這些 bytes 移進上面那條可快取的桶子，而不是調高這裡。
-    // Astro 預設的 "auto"（<4KB 即內嵌）優化的是「只看一頁就走」的落地頁，
-    // 那與文檔站的側寫相反。
+    // 內嵌樣式：每一次頁面導覽都重付一次，且無法快取。階段七起
+    // astro.config.mjs 設定 inlineStylesheets: "never"，這條因此不再是
+    // 預算而是回歸測試 —— 上限為 0，任何內嵌都代表有東西繞過了設定。
     key: "pageInlineCss",
-    label: "單頁內嵌 CSS（最大）",
+    label: "單頁內嵌 CSS（應為 0）",
     actual: worstInlineCss.inlineCss,
     detail: `${worstInlineCss.path}；全站 ${pages.length} 頁共內嵌 ${fmt(sum(pages.map((p) => p.inlineCss)))}`,
   },
@@ -249,22 +278,60 @@ const checks = [
 
 // -------------------------------------------------------------------- 報告
 
-const lines = [`\n效能預算閘門  ${config.distDir}/  —— ${htmlFiles.length} 頁\n`];
+// 紅線分兩類（ADR 0008）。分類的用途不是整理，而是讓「這筆成本誰付」在報告裡
+// 一眼可見 —— 撞線時兩類的正確反應完全相反：「人人都付」撞線是架構退化，
+// 「按需才付」撞線第一個要問的是「它還是按需的嗎」，多半只是套件變大。
+const CLASSES = [
+  { key: "everyonePays", label: "人人都付", note: "初始載入路徑，每位讀者無條件付費" },
+  { key: "onDemand", label: "按需才付", note: "執行期 dynamic import，只有觸發該功能的讀者才付" },
+];
+
+// 分類與紅線兩邊必須完全對得起來。這個對照本身就是 ADR 0008 那條規則的
+// 機器化：「沒有產物可以因為不屬於任何一條而消失在報告裡」—— 階段九／十
+// 新增按需產物時，忘記開紅線或忘記歸類都會在這裡失敗，而不是靜靜地通過。
+const budgetOf = new Map();
+for (const cls of CLASSES) {
+  const group = config.budgets[cls.key];
+  if (!group) fail(`perf-budget.config.json 缺少 budgets.${cls.key}`);
+  for (const [key, budget] of Object.entries(group)) {
+    if (key.startsWith("_")) continue;
+    budgetOf.set(key, { ...budget, class: cls.key });
+  }
+}
+for (const check of checks) {
+  if (!budgetOf.has(check.key))
+    fail(
+      `紅線缺漏：檢查 ${check.key} 在 perf-budget.config.json 找不到對應紅線。\n` +
+        `  每一項產物都必須歸入 budgets.everyonePays 或 budgets.onDemand，` +
+        `\n  沒有紅線的產物永遠不會失敗（ADR 0008）。`,
+    );
+}
+for (const key of budgetOf.keys()) {
+  if (!checks.some((c) => c.key === key))
+    fail(
+      `紅線 ${key} 沒有對應的檢查 —— 它永遠不會被評估。\n` +
+        `  請補上檢查，或若該產物已不存在就刪掉這條紅線。`,
+    );
+}
+
+const lines = [`\n效能預算閘門  ${config.distDir}/  —— ${htmlFiles.length} 頁`];
 const failures = [];
 
-for (const check of checks) {
-  const budget = config.budgets[check.key];
-  if (!budget) fail(`perf-budget.config.json 缺少 budgets.${check.key}`);
+for (const cls of CLASSES) {
+  lines.push(`\n  ${cls.label}　${cls.note}`);
 
-  const over = check.actual > budget.limit;
-  if (over) failures.push({ ...check, limit: budget.limit });
+  for (const check of checks.filter((c) => budgetOf.get(c.key).class === cls.key)) {
+    const budget = budgetOf.get(check.key);
+    const over = check.actual > budget.limit;
+    if (over) failures.push({ ...check, limit: budget.limit });
 
-  const pct = budget.limit > 0 ? Math.round((check.actual / budget.limit) * 100) : 0;
-  lines.push(
-    `  ${over ? "✗" : "✓"} ${pad(check.label, 24)}` +
-      `${fmt(check.actual).padStart(9)} / ${fmt(budget.limit).padStart(9)}` +
-      `  ${String(pct).padStart(3)}%   ${check.detail}`,
-  );
+    const pct = budget.limit > 0 ? Math.round((check.actual / budget.limit) * 100) : 0;
+    lines.push(
+      `  ${over ? "✗" : "✓"} ${pad(check.label, 24)}` +
+        `${fmt(check.actual).padStart(9)} / ${fmt(budget.limit).padStart(9)}` +
+        `  ${String(pct).padStart(3)}%   ${check.detail}`,
+    );
+  }
 }
 
 console.log(lines.join("\n"));
@@ -298,8 +365,9 @@ for (const f of failures) {
   }
   if (f.key === "pageInlineCss") {
     console.error(
-      `      內嵌樣式每次頁面導覽都重付。先考慮 astro.config.mjs 的` +
-        ` inlineStylesheets: "never"，\n      把這些 bytes 移進「外部 CSS（可快取）」，而非調高本條。`,
+      `      astro.config.mjs 已設定 inlineStylesheets: "never"，這條的期望值是 0。` +
+        `\n      出現內嵌代表有東西繞過了那個設定（新元件的 is:inline、整合套件自行注入、` +
+        `\n      或設定被改動）—— 那是退化而非成長，請找出來源，不要調高本條。`,
     );
   }
 }
