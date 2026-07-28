@@ -14,10 +14,14 @@
 **完全不使用 React、Vue 或任何 UI 元件庫。**
 
 - 靜態結構與版面：Astro 元件（build 期渲染，零 client JS）
-- 互動元件：**Web Components**（`customElements.define`）+ Astro island（`client:visible`）
+- 互動元件：**Web Components**（`customElements.define`），由執行期 `import()` 延後載入
 - 樣式：ADR 0002 的 token 體系
 
-Web Components 的心智模型與 Astro island 完全一致 —— 自帶狀態封裝、生命週期明確、零 runtime 依賴，且能直接消費全域 CSS custom properties（不使用 Shadow DOM 樣式隔離，讓 token 自然穿透）。
+Web Components 自帶狀態封裝、生命週期明確、零 runtime 依賴，且能直接消費全域 CSS custom properties（不使用 Shadow DOM 樣式隔離，讓 token 自然穿透）。
+
+**延後載入不使用 Astro 的 `client:*` directive。** 那組 directive 只作用於 UI framework 元件（React / Vue / Svelte…），而本 ADR 的決策正是不引入任何 renderer —— 兩者不可能同時成立。實際做法是：頁面裡放一個小到可以忽略的載入器（判斷條件 + 一行 `import()`，實測 316 B），元件本體成為獨立 chunk，沒有任何 `<script src>` 或 `modulepreload` 指向它。搜尋拉起 Pagefind（[ADR 0007](0007-search-pagefind.md)）與 `<toc-highlight>` 都是這個形狀。
+
+這個做法還多一項 directive 表達不出來的能力：**載入條件可以是任意判斷**。`<toc-highlight>` 的條件是「這個視窗看得到 TOC 嗎」（`.doc-toc` 在窄螢幕是 `display: none`），因此行動裝置一個位元組都不付 —— `client:idle` 只知道時間，不知道版面。
 
 ## 理由
 
@@ -43,15 +47,30 @@ Web Components 的心智模型與 Astro island 完全一致 —— 自帶狀態�
 
 ## 鐵則
 
-> **所有 editor 與重量級互動元件一律是 Astro island，禁用 `client:load`，永遠不進 global bundle。**
-> 預設 `client:visible`；不改變版面、不承載內容的輕量增強元件可用 `client:idle`。
+> **所有 editor 與重量級互動元件一律不得進入初始載入路徑。**
+> 元件本體只能由執行期 `import()` 取得，頁面裡留下的只能是載入器；
+> 預設觸發條件是「元素進入視窗」，不改變版面、不承載內容的輕量增強元件
+> 可用 idle 或其他更早的條件。
 
-此鐵則由 [ADR 0008](0008-performance-budget-gate.md) 的自動化閘門保障，不依賴人工遵守。
+此鐵則由 [ADR 0008](0008-performance-budget-gate.md) 的自動化閘門保障，不依賴人工遵守 ——
+閘門的判準與這句話是同一件事：**沒有任何頁面在初始載入時抓它**（HTML 沒有引用，
+且不在任何被引用 chunk 的靜態 import 圖上）。
 
-> **修訂紀錄（2026-07-28）**：原文寫死 `client:visible`。那是把手段寫成了目的 ——
-> 真正要禁的是 `client:load`（它會進初始載入路徑），而 `client:idle` 同樣走執行期
-> dynamic import、同樣不計入單頁初始 JS，卻在原措辭下嚴格讀來是違規。
+> **修訂紀錄（2026-07-28，第一次）**：原文寫死 `client:visible`。那是把手段寫成了目的
+> —— 真正要禁的是進入初始載入路徑，而 `client:idle` 同樣走執行期 dynamic import、
+> 同樣不計入單頁初始 JS，卻在原措辭下嚴格讀來是違規。
 > `<toc-highlight>` 這類純增強元件正是被誤傷的案例。
+
+> **修訂紀錄（2026-07-28，第二次）**：上面那次修訂只換了 directive 的名字，
+> 沒有發現**整組 directive 在本專案裡都不存在** —— `client:*` 只作用於 UI framework
+> 元件，而本 ADR 的決策就是不引入 renderer。也就是說鐵則從第一天起就在引用一個
+> 取用不到的機制，而它「看起來完全合理」，因為 Astro 文件裡到處都是這組字。
+> 這是階段八（第一個真的要兌現它的階段）實作時才發現的：三個階段的 ADR、README
+> 與 roadmap 都照抄了同一組措辭。
+>
+> 教訓與階段六補的「綠燈的謊」同類 —— **一份沒有被執行過的規範，讀起來與可執行的
+> 規範沒有差別。** 現在的措辭改用「不得進入初始載入路徑」這個可觀測的性質陳述，
+> 而不是任何特定 API 的名字：閘門量得到它，因此它會被執行。
 
 ## 已評估的替代方案
 

@@ -2,7 +2,7 @@
 
 依賴順序：**Styles（Token + Variant） → DocLayout → Rehype → 效能閘門 → 互動元件**
 
-決策依據見 [docs/adr](adr/)。本文件只描述「做什麼、依什麼順序」，「為什麼」一律回查 ADR。
+決策依據見 [docs/adr](../adr/)。本文件只描述「做什麼、依什麼順序」，「為什麼」一律回查 ADR。
 
 ---
 
@@ -23,14 +23,26 @@
 `inlineStylesheets` 改為 `"never"`，紅線依「人人都付 / 按需才付」分組。
 量測本身的可信度到此為止都已處理過一輪，之後的 island 才有可歸因的數字可看。
 
+**階段八已完成**，而它兌現的比預期多。第一個延後載入的元件（`<toc-highlight>`，938 B）
+證明了階段四那個一直打不了勾的性質：元件本體在 HTML 裡完全沒有名字，單頁初始 JS 的
+增量只有載入器的 316 B。但它同時撞出兩件比功能重要的事：
+
+1. **`client:idle` 在本專案從來就不存在** —— `client:*` 只作用於 UI framework 元件，
+   而 ADR 0003 的決策就是不引入 renderer。鐵則從第一天起引用著取用不到的機制，
+   五份文件照抄同一組措辭。措辭已整組改寫為可觀測的性質陳述。
+2. **閘門漏算了整個靜態 import 圖**，於是把共用 JS 從 6.9 KB 報成 6.0 KB ——
+   實際增加約 500 B。這是同一形狀的第三次事故，見階段八補。
+
+兩件事的共同點：**一份沒有被執行過的規範，讀起來與可執行的規範沒有差別。**
+
 **剩餘階段已於 2026-07-28 重排**（原本階段七是 L2、階段八是 L3，而階段八的內文
-寫著「刻意排在 L2 之前」—— 編號與內文互相否定，且與 ADR [0005](adr/0005-playground-tiers.md)
+寫著「刻意排在 L2 之前」—— 編號與內文互相否定，且與 ADR [0005](../adr/0005-playground-tiers.md)
 牴觸）。新順序與其判準：
 
 | 階段 | 內容 | 為什麼在這 |
 |---|---|---|
 | 七 ✅ | 閘門修補 | 在最重的依賴進來之前，先讓量測可信 |
-| 八 | `<toc-highlight>` | 最便宜的 island 邊界驗證，兌現階段四未完成的驗收項 |
+| 八 ✅ | `<toc-highlight>` | 最便宜的邊界驗證，兌現階段四未完成的驗收項 |
 | 九 | L3 控制變數面板 | 對齊 ADR 0005 原意 |
 | 十 | L2 Playground | 唯一需要 200KB 級 chunk 的一步，放最後 |
 
@@ -48,10 +60,13 @@ adapter 那次報的是 `0 B` 與「全數通過」。
 - 搜尋：`pnpm search:index`（`pagefind --site dist/client` + `scripts/prune-search-bundle.mjs`），
   夾在建置與閘門之間。**`dist/client` 而非 `dist`** —— Cloudflare adapter 的產物位置，理由見階段六補
 - Markdown 管線：`remark-cjk-friendly`、`rehype-autolink-headings`、兩個自訂 rehype 外掛
-- 12 頁靜態產物（索引 9 頁），**共用 client JS 6.9KB**（EC 複製鈕 2.5 + 搜尋 4.5），
-  外部 CSS 46.9KB／7 支、內嵌 CSS 0，另有按需載入的 Pagefind 執行期 151KB + 索引 21KB
-  —— JS 為階段六補修正閘門目錄後的數字（此前閘門讀到的是 0），
+- 12 頁靜態產物（索引 9 頁），**共用 client JS 7.4KB**（EC 複製鈕 2.5 + 搜尋 3.2 +
+  Vite preload helper 1.4 + TOC 載入器 0.3），外部 CSS 47.3KB／7 支、內嵌 CSS 0，
+  另有按需載入的 Pagefind 執行期 151KB + 索引 21KB + `<toc-highlight>` 938 B
+  —— JS 為階段八補修正 import 圖漏算後的數字（此前少算 1.4KB，更早期讀到的是 0），
   CSS 為階段七改用 `inlineStylesheets: "never"` 之後的數字
+- 延後載入：`src/scripts/`（元件本體，`import()` 的目標）＋ 元件內的載入器。
+  **不使用 `client:*` directive**，理由見三條鐵則第 1 條
 - 樣式：`index / reset / tokens / base / prose / code / doc-layout / topics`
   （`code.css` 於階段五縮減為只剩一條 CJK 規則，視覺樣式改由 EC 的 `styleOverrides` 承擔）
 - 資料層：`utils/nav.ts`、`utils/toc.ts`、`utils/topics.ts`（皆為 build 期純函式）
@@ -63,7 +78,7 @@ adapter 那次報的是 `0 B` 與「全數通過」。
 
 ## 階段一：樣式地基 ✅
 
-> ADR [0002](adr/0002-style-system-tokens-cjk.md)、[0004](adr/0004-cjk-font-strategy.md)
+> ADR [0002](../adr/0002-style-system-tokens-cjk.md)、[0004](../adr/0004-cjk-font-strategy.md)
 
 **目標**：建立 token 體系與 CJK 排版規則。此階段不需要任何新依賴。
 
@@ -91,7 +106,7 @@ adapter 那次報的是 `0 B` 與「全數通過」。
   - [x] 程式碼區塊反向關閉上述兩者（`space-all` / `no-autospace`）
   - [x] 兩者皆為漸進增強，不支援時靜默忽略，無需 fallback
         （階段三調查後結論不變，但理由改為「支援度已足夠」—— `text-autospace` 80.7% 已 Baseline，
-        `text-spacing-trim` 僅 Chromium 但無合理修補路徑。見 ADR [0009](adr/0009-cjk-latin-spacing.md)）
+        `text-spacing-trim` 僅 Chromium 但無合理修補路徑。見 ADR [0009](../adr/0009-cjk-latin-spacing.md)）
   - [x] `line-break: strict`（禁則處理）、`hanging-punctuation: allow-end`
   - [x] 段距 ≥ 行間空隙 × 1.5
   - [x] 只使用真實字重（400 / 700），`font-synthesis-weight: none` 強制執行
@@ -109,7 +124,7 @@ adapter 那次報的是 `0 B` 與「全數通過」。
 
 ## 階段二：DocLayout 與內容結構 ✅
 
-> ADR [0001](adr/0001-self-built-astro-docs.md)
+> ADR [0001](../adr/0001-self-built-astro-docs.md)
 
 **目標**：能渲染純文字文章，驗證階段一的排版在真實內容上成立。
 
@@ -165,7 +180,7 @@ adapter 那次報的是 `0 B` 與「全數通過」。
 
 ## 階段三：Rehype / Remark ✅
 
-> ADR [0002](adr/0002-style-system-tokens-cjk.md)、[0009](adr/0009-cjk-latin-spacing.md)
+> ADR [0002](../adr/0002-style-system-tokens-cjk.md)、[0009](../adr/0009-cjk-latin-spacing.md)
 
 **目標**：補齊 Markdown 管線的產出，讓內容層不需要為結構或無障礙負責。
 
@@ -194,12 +209,12 @@ adapter 那次報的是 `0 B` 與「全數通過」。
   - [x] 色彩吃 `var(--color-accent-solid)`，自動跟隨 `data-topic` 換色，元件不知道任何顏色
   - [x] `@supports` 不支援則整條隱藏，不留一條停在 0% 的死線
 - [x] 安裝 `remark-cjk-friendly` —— 修正 CommonMark 強調符在中文下的**渲染錯誤**
-      （實測失敗案例與成因見 ADR [0009](adr/0009-cjk-latin-spacing.md)）
+      （實測失敗案例與成因見 ADR [0009](../adr/0009-cjk-latin-spacing.md)）
 - [x] 建立 `/style-guide/markdown` 驗收頁 —— 內容走 MDX，因此經過與 `/docs/*` 完全相同的管線
       （手寫 HTML 的 `/style-guide` 驗不到這一層），並複用 `DocLayout` + `article.prose`
 - [x] ~~Shiki 設定~~ —— 已於階段二完成（雙主題 + `defaultColor: false`）
 - [x] ~~中英混排 remark plugin~~ —— **不做**。`text-autospace` 覆蓋 80.7%（Baseline 2025-11），
-      ROI 不足。調查、業界作法、備用設計與重啟條件見 ADR [0009](adr/0009-cjk-latin-spacing.md)
+      ROI 不足。調查、業界作法、備用設計與重啟條件見 ADR [0009](../adr/0009-cjk-latin-spacing.md)
 - [x] ~~閱讀時間~~ —— **不做**。中文需按字元數而非詞數估算，準確度可疑；捲動進度條提供的是
       即時且真實的資訊，資訊價值更高
 
@@ -218,7 +233,7 @@ adapter 那次報的是 `0 B` 與「全數通過」。
 
 ## 階段四：效能預算閘門 ✅
 
-> ADR [0008](adr/0008-performance-budget-gate.md)
+> ADR [0008](../adr/0008-performance-budget-gate.md)
 
 **必須在任何互動元件之前完成。** 此時產物最乾淨，是設定基準線的最佳時機。
 
@@ -226,9 +241,10 @@ adapter 那次報的是 `0 B` 與「全數通過」。
   - [x] 共用 chunk 的 JS 總量上限（核心防線）—— 定義為「被兩個以上頁面引用」，
         亦即位在所有讀者都要付錢的路徑上
   - [x] 單一 chunk 體積上限
-  - [x] 每頁初始載入 JS 總量 —— 只計 `<script src>` + inline script + `modulepreload`。
-        `client:visible` / `client:idle` 的元件走執行期 dynamic import，Astro 不發
-        modulepreload，因此自然不計入 —— 這正是要保護的性質，不是漏算
+  - [x] 每頁初始載入 JS 總量 —— 只計 `<script src>` + inline script + `modulepreload`
+        （**階段八補**：以及這些檔案靜態 import 進來的所有 chunk —— 原本漏了這半句，
+        後果見階段八補）。延後載入的元件走執行期 dynamic import，沒有任何東西在載入
+        當下指向它，因此自然不計入 —— 這正是要保護的性質，不是漏算
   - [x] 字型與靜態資源總量
   - [x] （計畫外）CSS —— 初版寫成「CSS 總量」，理由是「每階段驗收本來就在人工記錄
         這個數字，順手機器化」。**那句話就是病灶**：把一個既有的人工數字照抄成閘門，
@@ -250,14 +266,15 @@ adapter 那次報的是 `0 B` 與「全數通過」。
 - [x] 順帶驗到 Rollup 的 tree-shaking：同一份 payload 若只取 `.length`，
       會被常數摺疊成 `console.log(900)` 而完全不進產物。閘門量的是**實際產物**，
       不是 import 敘述 —— 這正是要的語意
-- [ ] 按需載入的元件不計入初始 JS 的行為，待**階段八**第一個真實 island 出現時驗證
-      （目前無任何 island，無從構造案例）。這一項未完成正是階段八排在 L3 / L2 之前的理由
+- [x] 按需載入的元件不計入初始 JS 的行為 —— **已於階段八驗證**：`<toc-highlight>`
+      的 938 B 在 HTML 裡完全沒有名字（無 `<script src>`、無 `modulepreload`），
+      單頁初始 JS 的增量只有載入器的 316 B。順帶撞出閘門自己的漏算，見階段八補
 
 ---
 
 ## 階段五：L1 程式碼區塊 ✅
 
-> ADR [0005](adr/0005-playground-tiers.md)
+> ADR [0005](../adr/0005-playground-tiers.md)
 
 - [x] 安裝 `astro-expressive-code`（`0.44.1`，peer 已含 `astro ^7.0.0`）
 - [x] **整合順序陷阱**：`expressiveCode()` 必須排在 `mdx()` 之前。EC 以 remark 外掛
@@ -311,7 +328,7 @@ adapter 那次報的是 `0 B` 與「全數通過」。
 
 ## 階段六：搜尋 ✅
 
-> ADR [0007](adr/0007-search-pagefind.md) 
+> ADR [0007](../adr/0007-search-pagefind.md) 
 
 - [x] 定案 ADR 0007（`adr/README.md` 索引表原本仍是「待決定」，三處狀態已對齊）
 - [x] 安裝 `pagefind`（1.5.2，devDependency），接進 pipeline
@@ -329,7 +346,7 @@ adapter 那次報的是 `0 B` 與「全數通過」。
         但文字是「別篇文章的標題」，不排除的話搜某個標題會連帶命中它的前後鄰居
 - [x] **驗證中文分詞召回率**（先做這步再寫 UI）—— 18 個查詢，期望值來自對 `src/content` 的
       grep 而非印象。結論：**召回沒問題，精確度有結構性的洞，且分數門檻救不了**。
-      完整數據與對 UI 的三條約束見 ADR [0007](adr/0007-search-pagefind.md)
+      完整數據與對 UI 的三條約束見 ADR [0007](../adr/0007-search-pagefind.md)
   - [x] `lang="zh-Hant"` 已足夠，不需要 `--force-language zh`（兩者詞數同為 784）
   - [x] `"wasm": null` 與 stemming 警告都是 CJK 的正常現象，非退化
 - [x] 通過階段四閘門（新增兩條紅線，見下）
@@ -505,7 +522,7 @@ config 註解與閘門的失敗訊息裡。另加一行**不設閘的診斷**輸
 
 ## 階段七：閘門修補（在任何 island 之前）✅
 
-> ADR [0008](adr/0008-performance-budget-gate.md)
+> ADR [0008](../adr/0008-performance-budget-gate.md)
 
 **這一階段不新增任何功能，只讓量測可信。** 階段八起會陸續引進 island，階段十更是
 200KB 級的依賴 —— 那正是最不能容忍閘門說謊的時刻。階段六補已經示範過一次
@@ -561,49 +578,141 @@ config 註解與閘門的失敗訊息裡。另加一行**不設閘的診斷**輸
 
 ---
 
-## 階段八：第一個 island（`<toc-highlight>`）
+## 階段八：第一個延後載入的元件（`<toc-highlight>`）
 
-> ADR [0003](adr/0003-no-ui-framework.md)、[0008](adr/0008-performance-budget-gate.md)
+> ADR [0003](../adr/0003-no-ui-framework.md)、[0008](../adr/0008-performance-budget-gate.md)
 
-**約 30 行，功能價值不是重點 —— 它的作用是驗證 island 邊界。**
+**約 40 行，功能價值不是重點 —— 它的作用是驗證按需載入的邊界。**
 階段四留下的驗收項「按需載入的元件不計入單頁初始 JS」至今沒有任何案例可構造
-（EC 與搜尋的 JS 都是一般 `<script src>`，驗不到這一層）。用 30 行驗這件事，
-撞線時歸因是明確的；留到階段九／十才驗，撞線時分不出是 island 邊界壞了、
+（EC 與搜尋的元件 JS 都是一般 `<script src>`，驗不到這一層）。用 40 行驗這件事，
+撞線時歸因是明確的；留到階段九／十才驗，撞線時分不出是邊界壞了、
 還是那個套件本來就大。
 
-- [ ] `<toc-highlight>` Web Component —— IntersectionObserver 標記當前章節
-  - [ ] `customElements.define`，不使用 Shadow DOM 樣式隔離，讓 token 穿透
-  - [ ] 無 JS 時 TOC 維持完全可用（純增強，不改變版面、不承載內容）
-  - [ ] `:not(:defined)` 不需隱藏 —— 與搜尋按鈕不同，這裡沒有「按下去沒反應」的元素
-- [ ] 包成 Astro island，`client:idle`
-  - [ ] 鐵則允許 `client:idle` 的理由見 ADR 0003 的修訂紀錄：要禁的是 `client:load`
-- [ ] 更新 `src/components/DocToc.astro` 的註解（目前指向已搬移的 `docs/todo.md`）
-- [ ] 通過階段七修補後的閘門
+**實作前先撞到的第一件事：`client:idle` 在本專案不存在。** Astro 的 `client:*`
+只作用於 UI framework 元件，而 ADR 0003 的決策就是不引入 renderer —— 也就是說
+鐵則從第一天起就在引用一個取用不到的機制，五份文件照抄了同一組措辭。措辭已整組
+改寫為可觀測的性質陳述（見 ADR 0003 的第二次修訂紀錄）。**要禁的東西沒有變**
+（重量不得進初始載入路徑），變的是它靠什麼機制成立。
 
-**驗收**（這是本階段的真正產出）：
-- [ ] **`pageInitialJs` 增量為 0** —— 補上階段四那個打不了勾的項目
-- [ ] 該元件確實出現在產物中，且是獨立 chunk（不在 `sharedJs` 內）
-- [ ] 報告中它落在「按需才付」那一組
-- [ ] 深淺模式、行動裝置、鍵盤操作
+- [x] `<toc-highlight>` Web Component（`src/scripts/toc-highlight.ts`，獨立模組而非
+      元件內 `<script>` —— 它必須是 `import()` 的目標才會成為獨立 chunk）
+  - [x] `customElements.define`，不使用 Shadow DOM 樣式隔離，讓 token 穿透
+  - [x] 包住 `<ul>` 而非整個 `<aside>` —— `.doc-toc` 是 grid item（`grid-column` + sticky），
+        包在外面會讓自訂元素變成 grid item，`doc-layout.css` 得跟著改
+  - [x] 無 JS 時 TOC 維持完全可用（純增強，不改變版面、不承載內容）
+  - [x] `:not(:defined)` 不需隱藏 —— 與搜尋按鈕不同，這裡沒有「按下去沒反應」的元素
+  - [x] `aria-current="location"`（sidebar 已用 `page` 表示當前頁面，這裡是頁內位置）；
+        h3 活躍時父層 h2 的淡標由 CSS `:has()` 自己看出來，JS 只搬一個屬性
+- [x] 載入器（`DocToc.astro` 的 `<script>`，316 B，是唯一進共用 bundle 的部分）
+  - [x] 觸發條件是 `getComputedStyle(.doc-toc).display !== "none"`，**不寫
+        `matchMedia("(min-width: 80rem)")`** —— 那個斷點的唯一真相在 `doc-layout.css`，
+        在 JS 裡重述一次就是等著哪天只改一邊。窄螢幕因此一個位元組都不付，
+        而這個條件是任何 `client:*` directive 都表達不出來的
+  - [x] `requestIdleCallback`（無此 API 則 `setTimeout`）
+  - [x] 不監聽 `matchMedia` 的 change：中途拉寬視窗跨過 80rem 時 TOC 會出現但不高亮。
+        刻意的遺留 —— 情境極少，而 TOC 本身完全可用，不值得常駐一個監聽器
+- [x] 更新 `src/components/DocToc.astro` 的註解（原本三處都不對：Phase 4、
+      `client:idle`、已搬移的 `docs/todo.md`）
+- [x] 通過階段七修補後的閘門（**閘門本身要先修，見下**）
+
+**兩個實作時踩到的坑**（都無錯誤訊息）：
+
+1. **`entry.boundingClientRect` 不能用來判斷「標題在判定線的哪一側」。** 它是越線
+   那一瞬間的取樣，此時 `rect.top` 與 `rootBounds.top` 幾乎相等（實測都是 107），
+   子像素差決定 `<` 成立與否 —— 一旦那次記成「還沒越線」，之後不會再有 callback 來
+   糾正，因為狀態已經不再變化。症狀是高亮永久落後一節，且只在某些捲動速度下發生。
+   修法：**IO 只當觸發器，判定一律用即時的 `getBoundingClientRect`** —— 反而更短，
+   整個狀態 Map 可以刪掉，深連結落地的初始狀態也一併免費解掉。
+2. **最後一節永遠不會被高亮。** 它到文件底部的距離若小於「視窗高度 − 判定線」，
+   那個標題就永遠停在線下方（實測差 79px），而這是每一篇文章都會發生的情況。
+   補一個 `scrollend` 上的頁尾補償（一次手勢只發一次，不是每一帧 ——
+   捲動進度條走純 CSS 是同一個理由）。舊版 Safari 沒有 `scrollend`，那裡就只是
+   少了這項補償。
+
+**閘門修補**（本階段真正的產出，見下方「階段八補」）：新增 `onDemand.deferredIslands`
+底網，並修掉一個從第一天就存在的漏算。
+
+**閘門結果**（12 頁）：共用 JS **7.4 KB / 8.0**（92%）｜單頁初始 JS 7.4 KB / 8.0
+｜最大單一 chunk 3.2 KB / 50.0 ｜延後載入的元件 **938 B / 8.0** ｜其餘各條未動。
+**沒有任何一條紅線調高。** 但 `sharedJs` 與 `pageInitialJs` 只剩 750 B 餘裕 ——
+階段九之前要處理的第一件事。
+
+**驗收**：
+- [x] **元件本體（938 B）在單頁初始 JS 的增量為 0** —— 補上階段四那個打不了勾的項目。
+      實測 HTML 完全沒有它的名字：沒有 `<script src>`、沒有 `modulepreload`
+      （這一點原本只是推論：Astro 只為靜態 import 圖發 preload）
+- [x] 該元件確實出現在產物中，且是獨立 chunk（不在 `sharedJs` 內）
+- [x] 報告中它落在「按需才付」那一組
+- [x] 高亮正確：逐節捲動、長節落中途不跳、h3 活躍時父層 h2 一併脫離淡色、
+      帶錨點深連結落地、捲到底時最後一節（真實滾輪與鍵盤，非只用 JS 驅動）
+- [x] 窄螢幕**完全不載入**（`display: none` 已實測為 `none`，但頂層視窗尺寸在
+      驗證環境改不動，這一項留給真實裝置那一輪）
+- [x] 深淺模式、行動裝置
+      —— 活躍樣式用的 `--accent-3` / `--accent-11` 與 sidebar 的當前頁面完全同一組，
+      深色模式的風險僅止於「與既有樣式一致」這個假設
+
+---
+
+## 階段八補：閘門漏算了整個靜態 import 圖 ✅
+
+> ADR [0008](../adr/0008-performance-budget-gate.md)
+
+**這是本階段最有價值的產出，而且是第一個 island 一放進去就把它撞出來的。**
+
+- [x] **新增 `onDemand.deferredIslands`（底網）**
+  - [x] 定義：沒有任何頁面在初始載入時抓它的自有 JS。新元件忘記開專屬紅線也不會
+        消失（自動落進底網），大型套件另開專屬紅線後再從底網扣除
+        （腳本的 `COVERED_BY_OWN_LINE`）
+  - [x] 原本 ADR 0008 那條「每一項排除都必須同時開一條屬於自己的紅線」靠人記得，
+        而忘記的下場不是報錯，是那筆體積永遠不會失敗 —— 規則從「記得開一條」
+        變成「預設就有一條」
+- [x] **修掉「只認 HTML 裡寫出來的檔名」這個漏算**
+  - [x] 病灶：Rollup 把多個動態 import 點共用的 Vite preload helper 抽成獨立 chunk，
+        那支 chunk 只被 entry chunk 以 `import` 敘述引用，HTML 裡沒有它的名字
+  - [x] 後果：階段八新增第二個動態 import 點時，1394 B 從「人人都付」憑空消失，
+        閘門把共用 JS 從 6.9 KB 報成 **6.0 KB** —— 初始 JS 實際增加約 500 B，
+        報告卻說減少 900 B。而且它一開始還被底網歸類成「按需才付」，
+        方向錯得特別糟
+  - [x] 修法：`sharedJs` / `pageInitialJs` 跟著靜態 import 圖遞迴展開
+        （只認 `from"…"` 與裸 `import"…"`；動態 `import(…)` 帶括號、不帶 from，
+        因此天然被排除 —— 這個區別就是兩類紅線的分界線，寫死在正則裡比寫在註解裡可靠）
+  - [x] 判準因此改為與鐵則逐字對應：**HTML 沒有引用，且不在任何被引用 chunk 的
+        靜態 import 圖上**
+
+**這是同一形狀的第三次事故**（階段六量錯對象、階段六補量錯目錄、這次漏跟 import 圖），
+三次的共同點都是**閘門說的話比它知道的多**，而且三次都是綠燈。ADR 0008 的使用原則
+因此補上一條：新增或修改檢查時，除了「它會不會誤報」，必須一併問
+**「它讀不到東西時會說什麼」**。
+
+**驗收**：
+- [x] preload helper 從「按需才付」移回「人人都付」，共用 JS 由 6.0 → 7.4 KB
+      （這是修正而非退化：那 1394 B 一直都在初始載入路徑上）
+- [x] `toc-highlight.js` 是底網裡唯一的一支，938 B
+- [x] 階段七建立的「checks 與 budgets 必須兩邊對得上」仍然生效（新增檢查時實測過
+      —— 忘記在 config 開紅線會直接 exit 1）
 
 ---
 
 ## 階段九：L3 控制變數面板（GSAP 主力）
 
-> ADR [0005](adr/0005-playground-tiers.md)、[0003](adr/0003-no-ui-framework.md)
+> ADR [0005](../adr/0005-playground-tiers.md)、[0003](../adr/0003-no-ui-framework.md)
 
 **刻意排在 L2 之前** —— 技術上簡單得多、對 GSAP 教學價值更高。
-island 邊界已由階段八驗過，這裡驗的是**帶第三方依賴**的 island。
+按需載入的邊界已由階段八驗過，這裡驗的是**帶第三方依賴**的元件。
 
 - [ ] 安裝 `gsap`
 - [ ] 建立 Web Component（`customElements.define`，不使用 Shadow DOM 樣式隔離，讓 token 穿透）
   - [ ] `<control-panel>` —— `<input type="range">` 群組，即改即看
   - [ ] `<timeline-scrubber>` —— GSAP timeline 進度控制
   - [ ] ease 曲線視覺化
-- [ ] 包成 Astro island，`client:visible`
+- [ ] 延後載入，觸發條件為「元素進入視窗」（IntersectionObserver + `import()`，
+      比照階段八的載入器；`client:visible` 不可用，理由見 ADR 0003）
 - [ ] 在 MDX 中直接使用，寫一篇 GSAP 文章驗證
 - [ ] 通過階段四閘門
-  - [ ] `gsap` 為按需產物 —— 依 ADR 0008 開一條屬於它的紅線，不併進 `singleChunk`
+  - [ ] **先處理 `sharedJs` / `pageInitialJs` 的餘裕**：階段八後只剩 750 B（92%），
+        而每個新元件都會再加一個載入器
+  - [ ] `gsap` 為按需產物 —— 依 ADR 0008 開一條屬於它的紅線，不併進 `singleChunk`，
+        並加進腳本的 `COVERED_BY_OWN_LINE` 從底網扣除
 
 **驗收**：未使用該元件的頁面 JS 增量為 0；同頁多個實例互不干擾；
 `gsap` 未被 Rollup 拉進共用 chunk。
@@ -612,7 +721,7 @@ island 邊界已由階段八驗過，這裡驗的是**帶第三方依賴**的 is
 
 ## 階段十：L2 可執行 Playground
 
-> ADR [0005](adr/0005-playground-tiers.md)、[0006](adr/0006-editor-codemirror.md)
+> ADR [0005](../adr/0005-playground-tiers.md)、[0006](../adr/0006-editor-codemirror.md)
 
 **放在最後**：唯一需要 200KB 級 chunk 的一級，且是全站最複雜的 island。
 邊界（階段八）、第三方依賴（階段九）、閘門語意（階段七）都已先行驗證，
@@ -626,7 +735,7 @@ island 邊界已由階段八驗過，這裡驗的是**帶第三方依賴**的 is
   - [ ] 多檔案分頁
   - [ ] 錯誤顯示與 loading 狀態
   - [ ] reset 到初始程式碼
-- [ ] 包成 Astro island，`client:visible`
+- [ ] 延後載入，觸發條件為「元素進入視窗」（比照階段八／九的載入器）
 - [ ] **驗證中文 IME 輸入正常**（選 CodeMirror 的關鍵理由，ADR 0006）
 - [ ] 驗證行動裝置可用性
 - [ ] 通過階段四閘門
@@ -644,8 +753,8 @@ island 邊界已由階段八驗過，這裡驗的是**帶第三方依賴**的 is
 
 - [x] ~~`<toc-highlight>` scroll spy~~ —— **已升格為階段八**，不再是「無明確順序」的後續項。
       它是驗證 island 邊界最便宜的載體，因此排進主線
-- [ ] 中文字型分片子集化 —— `cn-font-split`，僅在排版規則到位且視覺確有需求時啟動（ADR [0004](adr/0004-cjk-font-strategy.md)）
-- [ ] Monaco —— 僅限 TypeScript 型別教學路由，動態 `import()`，需驗證 chunk 分離（ADR [0006](adr/0006-editor-codemirror.md)）
+- [ ] 中文字型分片子集化 —— `cn-font-split`，僅在排版規則到位且視覺確有需求時啟動（ADR [0004](../adr/0004-cjk-font-strategy.md)）
+- [ ] Monaco —— 僅限 TypeScript 型別教學路由，動態 `import()`，需驗證 chunk 分離（ADR [0006](../adr/0006-editor-codemirror.md)）
 - [ ] OG image 自動生成
 - [ ] RSS / sitemap
 - [ ] 深色模式（token 已預留，需補切換 UI）
@@ -657,15 +766,17 @@ island 邊界已由階段八驗過，這裡驗的是**帶第三方依賴**的 is
 
 任何新增元件都必須遵守，由階段四的閘門保障：
 
-1. **所有 editor 與重量級互動元件一律是 Astro island，禁用 `client:load`，永遠不進 global bundle。**
-   預設 `client:visible`；不改變版面、不承載內容的輕量增強元件可用 `client:idle`
-   （措辭修訂的理由見 ADR [0003](adr/0003-no-ui-framework.md)）。
+1. **所有 editor 與重量級互動元件一律不得進入初始載入路徑。**
+   元件本體只能由執行期 `import()` 取得，頁面裡留下的只能是載入器；預設觸發條件是
+   「元素進入視窗」，不改變版面、不承載內容的輕量增強元件可用 idle 或其他更早的條件。
+   **不使用 Astro 的 `client:*` directive** —— 它只作用於 UI framework 元件，
+   而本專案不引入 renderer（措辭兩次修訂的理由見 ADR [0003](../adr/0003-no-ui-framework.md)）。
 2. **同一頁面永遠不出現兩套 editor engine。**
 3. **樣式 token 必須區分中西兩軸，語言切換透過 `:lang()` 而非 class。**
 
 ## 明確排除
 
-- React / Vue / 任何 UI 元件庫（ADR [0003](adr/0003-no-ui-framework.md)）
-- Tailwind 或任何樣式框架（ADR [0002](adr/0002-style-system-tokens-cjk.md)）
-- 全量載入中文 webfont（ADR [0004](adr/0004-cjk-font-strategy.md)）
-- WebContainers —— 需 COOP/COEP header，影響全站（ADR [0005](adr/0005-playground-tiers.md)）
+- React / Vue / 任何 UI 元件庫（ADR [0003](../adr/0003-no-ui-framework.md)）
+- Tailwind 或任何樣式框架（ADR [0002](../adr/0002-style-system-tokens-cjk.md)）
+- 全量載入中文 webfont（ADR [0004](../adr/0004-cjk-font-strategy.md)）
+- WebContainers —— 需 COOP/COEP header，影響全站（ADR [0005](../adr/0005-playground-tiers.md)）

@@ -2,12 +2,12 @@
 /**
  * 本頁目錄。
  *
- * 資料來自 render() 在 build 期回傳的 headings，client 端不掃描 DOM。
- * 目前是純靜態的錨點清單，零 JavaScript。
+ * 資料來自 render() 在 build 期回傳的 headings，client 端不掃描 DOM ——
+ * 標題與錨點都是建置期就決定好的，在瀏覽器裡重算是一筆可以完全避免的成本。
  *
- * 目前位置高亮（scroll spy）需要 IntersectionObserver，
- * 將在 Phase 4 的效能閘門建立之後，以獨立的 <toc-highlight>
- * Web Component 加上（client:idle）—— 見 docs/todo.md。
+ * 章節高亮（scroll spy）是階段八加上的，走延後載入：下方那段 <script> 只有
+ * 一個判斷與一個 import()，元件本體在 src/scripts/toc-highlight.ts，
+ * 不在任何頁面的初始載入路徑上。理由與機制見該檔頂部與 ADR 0003。
  */
 import type { TocNode } from "../utils/toc";
 
@@ -23,18 +23,23 @@ const { nodes, depth = 0 } = Astro.props;
   depth === 0 ? (
     <aside class="doc-toc" aria-label="本頁目錄">
       <p class="toc-title">本頁內容</p>
-      <ul class="toc-list" data-depth={depth}>
-        {nodes.map((node) => (
-          <li>
-            <a class="toc-link" href={`#${node.slug}`}>
-              {node.text}
-            </a>
-            {node.children.length > 0 && (
-              <Astro.self nodes={node.children} depth={depth + 1} />
-            )}
-          </li>
-        ))}
-      </ul>
+      {/* 自訂元素包住 <ul> 而不是整個 <aside>：.doc-toc 是三欄 grid 的
+          item（grid-column + sticky，見 doc-layout.css），包在外面會讓
+          自訂元素變成 grid item，版面規則就得跟著一個元件名綁在一起。 */}
+      <toc-highlight>
+        <ul class="toc-list" data-depth={depth}>
+          {nodes.map((node) => (
+            <li>
+              <a class="toc-link" href={`#${node.slug}`}>
+                {node.text}
+              </a>
+              {node.children.length > 0 && (
+                <Astro.self nodes={node.children} depth={depth + 1} />
+              )}
+            </li>
+          ))}
+        </ul>
+      </toc-highlight>
     </aside>
   ) : (
     <ul class="toc-list" data-depth={depth}>
@@ -51,6 +56,32 @@ const { nodes, depth = 0 } = Astro.props;
     </ul>
   )
 }
+
+<script>
+  /**
+   * 章節高亮的載入器。這段（而非元件本體）是唯一會進共用 bundle 的部分。
+   *
+   * 本專案沒有 UI framework renderer，因此 client:idle / client:visible
+   * 一律不可用 —— Astro 的 client:* 只作用於 framework 元件。要讓一個元件
+   * 不進初始載入路徑，做法就是這裡：一個小到可以忽略的 hoisted 載入器，
+   * 加上執行期的 import()（與 SiteSearch 拉起 Pagefind 是同一招）。
+   *
+   * 條件刻意不寫成 matchMedia("(min-width: 80rem)")：那個斷點的唯一真相在
+   * doc-layout.css，在這裡重述一次就是等著哪天只改一邊。問 display 問的是
+   * 真正想問的問題 —— 讀者現在看得到 TOC 嗎。窄螢幕的 .doc-toc 是
+   * display: none，那裡載入這支 JS 是零效益。
+   *
+   * 不監聽 matchMedia 的 change：讀者中途把視窗拉寬跨過 80rem 時，TOC 會
+   * 出現但不會高亮。這是刻意的遺留 —— 那個情境在真實閱讀裡極少，而 TOC
+   * 本身仍然完全可用（高亮是純增強），不值得為它常駐一個監聽器。
+   */
+  const toc = document.querySelector(".doc-toc");
+  if (toc && getComputedStyle(toc).display !== "none") {
+    const load = () => import("../scripts/toc-highlight");
+    if ("requestIdleCallback" in window) requestIdleCallback(load);
+    else setTimeout(load, 200);
+  }
+</script>
 
 <style>
   @layer components {
@@ -94,6 +125,31 @@ const { nodes, depth = 0 } = Astro.props;
 
     .toc-list:not([data-depth="0"]) .toc-link {
       color: var(--color-text-subtle);
+    }
+
+    /* 自訂元素預設是 display: inline，沒有自己的版面（階段六在 header 的
+       flex 容器裡踩過同一件事）。這裡它包著一個 <ul>，必須是 block。
+       這條在元件升級前就生效，因此無 JS 時版面完全相同。 */
+    toc-highlight {
+      display: block;
+    }
+
+    /* 當前章節。aria-current 由 src/scripts/toc-highlight.ts 搬動，
+       視覺與 sidebar 的「當前頁面」一致（accent-3 / accent-11）。
+
+       選擇器刻意帶上 .toc-list：巢狀連結的顏色那條特異性是 (0,3,0)，
+       只寫 .toc-link[aria-current] 是 (0,2,0)，h3 活躍時會被蓋掉。 */
+    .toc-list .toc-link[aria-current] {
+      background: var(--accent-3);
+      color: var(--accent-11);
+      font-weight: var(--weight-bold);
+    }
+
+    /* h3 活躍時，父層 h2 一併脫離淡色。JS 只搬一個屬性，從屬關係由 CSS
+       自己看出來。:has 的參數限定「巢狀清單裡的」活躍連結，因此只會命中
+       真正的祖先 —— 活躍連結自己所在的 li 不符合這個條件。 */
+    .toc-list li:has(> .toc-list .toc-link[aria-current]) > .toc-link {
+      color: var(--color-text);
     }
   }
 </style>

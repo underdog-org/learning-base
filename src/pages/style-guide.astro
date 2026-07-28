@@ -220,8 +220,8 @@ const tsSample = `interface Token<T extends string> {
       <div class="prose">
         <p>
           我們使用 Astro 7 搭配 TypeScript 開發，內容以 MDX 撰寫，程式碼區塊由
-          Shiki 渲染。整站的 JavaScript 預算控制在 50KB 以內，互動元件透過
-          <code>client:visible</code> 按需載入。
+          Shiki 渲染。整站的 JavaScript 預算控制在 50KB 以內，互動元件透過執行期的
+          <code>import()</code> 按需載入。
         </p>
         <p>
           根據 2026 年的統計，中文使用者平均閱讀速度約為每分鐘 300 至 500 字，

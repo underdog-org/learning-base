@@ -51,6 +51,12 @@
     },
 
     "onDemand": {
+      "deferredIslands": {
+        "limit": 8192,
+        "_": "延後載入的自有元件總量，定義為「沒有任何頁面在初始載入時抓它」—— HTML 沒有引用，且不在任何被引用 chunk 的靜態 import 圖上。那正是延後載入的可觀測特徵：載入器在執行期才 import()，因此沒有任何東西在載入當下指向它。階段八起為 <toc-highlight>（834 B）。撞線時第一個要問的不是「該調高嗎」而是「它還是按需的嗎」：元件若不小心變成靜態 import，會從這條消失並同時出現在 sharedJs，兩邊的數字會一起動。",
+        "_why": "這條是**底網**而非清單。ADR 0008 要求「每一項排除都必須同時開一條屬於自己的紅線」，但那條規則靠人記得，而忘記開的下場是那筆體積永遠不會失敗 —— 這個站已經被「看不到與不存在長得一樣」騙過一次（階段六補：閘門量錯目錄，回報 0 B 與全數通過）。有了底網，新元件不開專屬紅線也不會消失，它會自動落在這裡；大型套件另開專屬紅線後再從這裡扣除（腳本的 COVERED_BY_OWN_LINE）。",
+        "_limit_why": "上限 8192 與 sharedJs 同數量級，基準線約 1 KB。這條量的是「我們自己寫的按需元件」，第三方執行期（Pagefind、未來的 gsap / CodeMirror）一律扣除到各自的紅線去 —— 否則一支 200KB 的套件會讓這個訊號完全讀不出來，那正是 singleChunk 排除 pagefind 的同一個理由。"
+      },
       "searchRuntime": {
         "limit": 163840,
         "_": "Pagefind 執行期（pagefind.js + pagefind-worker.js + wasm）。ADR 0007。只在讀者第一次打開搜尋時才 import，因此不進 everyonePays 各條 —— 它們沒有任何 HTML 引用。體積由 Pagefind 版本決定，只有升版會變動，基準線 155009 B。這條是回歸測試而非預算：Pagefind CLI 無條件產出三套不使用的預設 UI（234KB JS + 63KB CSS），由 scripts/prune-search-bundle.mjs 刪除；刪除清單一旦失準，這裡會立刻爆掉。餘裕 8831 B 只夠吸收小幅升版差異，這是刻意的。"
