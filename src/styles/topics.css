@@ -75,4 +75,22 @@
     --accent-11: light-dark(#cc4e00, #ffa057);
     --accent-12: light-dark(#582d1d, #ffe0c2);
   }
+
+  /* --- pnpm：amber ---------------------------------------------------------
+   * pnpm 的品牌色是橘黃，但 orange 已經給 Claude 了。amber 的 9 階
+   * (#ffb224) 明顯偏黃，與 orange 9 (#f76b15) 在導航列並置時分得出來。 */
+  [data-topic="pnpm"] {
+    --accent-1: light-dark(#fefdfb, #16120c);
+    --accent-2: light-dark(#fff9ed, #1d180f);
+    --accent-3: light-dark(#fff4d5, #302008);
+    --accent-4: light-dark(#ffecbc, #3f2700);
+    --accent-5: light-dark(#ffe3a2, #4d3000);
+    --accent-6: light-dark(#ffd386, #5c3d05);
+    --accent-7: light-dark(#f3ba63, #714f19);
+    --accent-8: light-dark(#ee9d2b, #8f6424);
+    --accent-9: light-dark(#ffb224, #ffb224);
+    --accent-10: light-dark(#ffa01c, #ffcb47);
+    --accent-11: light-dark(#ad5700, #f1a10d);
+    --accent-12: light-dark(#4e2009, #ffee9c);
+  }
 }

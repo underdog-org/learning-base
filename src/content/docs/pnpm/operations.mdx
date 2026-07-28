@@ -1,0 +1,223 @@
+---
+title: store 維運與供應鏈
+description: store 只增不減、Docker 裡的 symlink、以及讓依賴「先冷卻再安裝」。
+order: 4
+sidebarLabel: 維運與供應鏈
+---
+
+前三頁講的是「怎麼裝對」。這頁講的是**裝對之後要持續付出的成本**：
+磁碟會長、image 會壞、上游會被入侵。
+
+三件事看似無關，其實都是[三層架構](/docs/pnpm/architecture)的延伸——
+第一層決定磁碟成本，第三層決定 Docker 能不能 COPY，而供應鏈設定管的是
+「什麼東西有資格進第一層」。
+
+## store 只增不減
+
+跨專案共用是第一層的價值，代價是 **store 永遠不會自己縮小**。
+你刪掉一個專案，它拉進來的套件仍然留在 store 裡。
+
+三個指令就是全部：
+
+```bash
+pnpm store path      # store 在哪（永遠用問的，不要背路徑）
+pnpm store status    # 檢查 store 裡的內容有沒有被改過
+pnpm store prune     # 移除沒有任何專案在用的套件
+```
+
+`pnpm store prune` 是**安全的**。官方原話是它「has no side effects on your projects」——
+被刪掉的套件下次需要時會重新下載。
+
+但不要排進每日排程。理由是它移除的是「當下沒被引用」的東西，而
+**切回舊分支、還原舊 lockfile 都會讓那些東西重新變成需要的**。太常 prune 的結果是
+每次切分支都在重新下載，把第一層的價值抵銷掉。官方的建議是
+「occasionally to clean up the store, but not too frequently」。
+
+實務判準：**磁碟告急時才跑，或換過大版本的框架之後跑一次。**
+
+> 回扣第一層：store 必須與專案同一顆磁碟。把 store 移到外接碟省空間是常見的錯誤操作——
+> clone 與 hardlink 都會失效，退化成 copy，於是「省下來的空間」會以每個專案完整複製一份的
+> 形式加倍還回去。
+
+## CI：要快取的是 store
+
+```yaml
+- uses: pnpm/action-setup@v4
+- uses: actions/setup-node@v4
+  with:
+    node-version: 22
+    cache: pnpm          # 快取的是 store
+- run: pnpm install --frozen-lockfile
+```
+
+`cache: pnpm` 快取的是 **store**，還原後 `pnpm install` 只需要重建 symlink，很快。
+
+**不要快取 `node_modules`。** 兩個理由，第二個比較致命：
+
+1. 它把三層架構壓回一層——你快取的是解壓後的完整內容，體積是 store 的數倍。
+2. `node_modules` 裡全是 symlink。快取工具還原時可能把 symlink 展開成實體檔案
+   （視工具與平台而定），於是你得到一份**看起來對、但已經不是 pnpm 佈局**的目錄，
+   而且錯誤只會在某個吃 symlink 的工具上才浮現。
+
+完整的 CI 骨架與各欄位的換法見[模板](/docs/pnpm/templates)的 T8。
+
+## Docker：symlink 的邊界在哪
+
+[Monorepo](/docs/pnpm/monorepo) 那頁說「直接 COPY `node_modules` 會壞」，
+這裡把條件講精確，因為它其實是**有條件成立**的：
+
+pnpm 產生的 symlink 是**相對路徑**（`astro -> .pnpm/astro@7.1.4_.../node_modules/astro`）。
+所以：
+
+- **整包 COPY（含 `.pnpm/`）到相同的路徑深度 → 有效。** 相對路徑仍然指得到。
+- **只 COPY 一部分**，或 monorepo 裡從 `apps/web/node_modules` 單獨搬出來 → **失效**。
+  那些 symlink 會指到 repo 根的 `node_modules/.pnpm`，而它不在 image 裡。
+
+這就是為什麼單一 package 的專案可以直接 COPY，monorepo 必須用 `pnpm deploy`。
+
+### 骨架：多階段 + BuildKit cache mount
+
+```dockerfile
+FROM node:24-slim AS base
+ENV PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME/bin:$PATH"
+RUN corepack enable
+COPY . /app
+WORKDIR /app
+
+FROM base AS prod-deps
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --prod --frozen-lockfile
+
+FROM base AS build
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
+RUN pnpm run build
+
+FROM base
+COPY --from=prod-deps /app/node_modules /app/node_modules
+COPY --from=build /app/dist /app/dist
+EXPOSE 8000
+CMD [ "pnpm", "start" ]
+```
+
+三個容易寫錯的點：
+
+1. **`target` 必須等於 `pnpm store path` 的實際輸出。** 這裡設了
+   `PNPM_HOME=/pnpm`，store 才會落在 `/pnpm/store`。只改 `--mount` 的 target
+   而沒設 `PNPM_HOME`，快取掛在一個沒人用的路徑上——build 不會報錯，只是永遠沒變快。
+2. **cache mount 不是 layer 快取。** `--mount=type=cache` 的內容不會進 image，
+   所以它省的是「重新下載」，不是「重新安裝」。image 體積不受影響。
+3. **版本靠 `packageManager` 決定**（見[模板](/docs/pnpm/templates)的 T2）。
+   image 裡不要再釘一次 pnpm 版本，兩處會分岔。
+
+### monorepo：`pnpm deploy` 與 `pnpm fetch`
+
+```bash
+pnpm --filter=my-app --prod deploy ./out
+```
+
+需要 `inject-workspace-packages: true`，細節見 [Monorepo](/docs/pnpm/monorepo)。
+
+另一個值得知道的是 `pnpm fetch`：
+
+```dockerfile
+COPY pnpm-lock.yaml ./
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm fetch --prod
+COPY . .
+RUN pnpm install --offline --prod
+```
+
+`pnpm fetch` **只讀 lockfile**，不需要 `package.json`，也不碰原始碼。
+所以這一層的 Docker cache 只在 lockfile 變動時失效——改一行程式碼不會讓依賴重裝。
+這是把「依賴變動」與「程式碼變動」拆成兩個快取層的標準手法。
+
+## 供應鏈：讓新版本先冷卻
+
+2025 年幾起 npm 事件的共同形狀是：**攻擊者拿到維護者帳號，發一個惡意 patch 版本，
+在被發現前的幾小時內被大量自動安裝。** 攻擊視窗通常以小時計。
+
+pnpm 對這件事有內建設定，這是它目前相對於其他套件管理器**最實質的差異**——
+比幻影依賴防護更值得拿來當選擇理由。
+
+### `minimumReleaseAge`：新版本發布後 N 分鐘內不安裝
+
+```yaml
+# pnpm-workspace.yaml
+minimumReleaseAge: 1440        # 分鐘，1440 = 24 小時
+minimumReleaseAgeExclude:
+  - '@acme/*'                  # 自家套件不必等
+```
+
+單位是**分鐘**。設 1440 的意思是「任何套件發布未滿 24 小時，我就不裝」——
+把上面那個以小時計的攻擊視窗，換成別人替你踩雷的時間。
+
+| | v10（含 10.34.5） | v11 |
+|---|---|---|
+| 預設值 | **`0`**（等於沒開） | **`1440`** |
+
+**這是 v10 使用者最該手動加的一行。** v11 起它是預設開啟的，而 v10 不設就完全沒有保護——
+照 pnpm.io 官方文件（呈現 v11）讀到「預設 1440」而以為自己已經有防護，是最危險的誤解。
+
+`minimumReleaseAgeExclude` 支援樣式（v10.17+）與精確版本（v10.19+），
+用來放行自家 registry 或急需的修補版。
+
+### `trustPolicy`：拒絕信任等級下降的版本
+
+```yaml
+trustPolicy: no-downgrade
+```
+
+`no-downgrade` 的意思是：**如果某個版本的供應鏈信任證據比它先前的版本弱，就拒絕安裝。**
+所謂證據是 npm 的 trusted publisher 標記與 provenance attestation——
+一個一直用 CI 可信發布流程的套件，突然出現一個「從某人筆電手動 push」的版本，
+就是典型的帳號被盜特徵。
+
+預設是 `off`。相關設定：
+
+| 設定 | 起始版本 | 用途 |
+|---|---|---|
+| `trustPolicy` | v10.21.0 | `off`（預設）/ `no-downgrade` |
+| `trustPolicyExclude` | v10.22.0 | 放行特定套件 |
+| `trustPolicyIgnoreAfter` | v10.27.0 | 發布超過指定時間的舊版本不檢查 |
+
+三者在 10.34.5 都可用。**代價要先知道**：這兩個設定都需要完整的 registry metadata
+（而非預設的精簡版），所以冷快取的解析會變慢、記憶體用量會升高。大型 workspace
+在 CI 上開啟後撞到記憶體上限是已知情況。
+
+### 三道防線各管一段
+
+供應鏈設定容易被當成同一類東西，但它們攔的是不同階段：
+
+```text
+上游發布惡意版本
+│
+├─ 它有資格被解析進來嗎？   ──▸ minimumReleaseAge / trustPolicy
+│                               （攔「哪個版本」）
+│
+├─ 它能在我的機器上執行程式碼嗎？ ──▸ allowBuilds
+│                               （攔「能不能跑 build script」）
+│
+└─ 下次安裝還是同一份嗎？   ──▸ pnpm-lock.yaml + --frozen-lockfile
+                                （攔「有沒有被偷換」）
+```
+
+三道獨立，缺一不可：
+
+- 只鎖 lockfile → 第一次就裝到惡意版本時，lockfile 忠實地把它鎖住了。
+- 只設 `minimumReleaseAge` → 攻擊者只要等滿 24 小時，你照樣裝。
+- 只審 `allowBuilds` → 惡意程式碼放在套件的正常 import 路徑上，根本不需要 build script。
+
+所以 `dangerouslyAllowAllBuilds: true` 的問題不只是「危險」，
+而是**它單獨拆掉了中間那道**，而另外兩道都不會補上它。
+
+## 版本演進：v10 → v11
+
+前面各頁標注的 v11 差異，共同主線只有一條：**設定的家收斂到 `pnpm-workspace.yaml`。**
+
+- `package.json` 的 `pnpm` 欄位在 v11 被移除，官方提供 codemod 自動搬遷。
+- `.npmrc` **不受影響**，它仍然負責 registry 與認證（見[故障診斷](/docs/pnpm/diagnosis)）。
+- 在 v10 就把設定全部寫進 `pnpm-workspace.yaml`，升級時什麼都不用改——
+  v10.34.5 已完整支援，只是還沒強制。
+
+另一條與架構無關但常被誤解的演進：**pacquet（Rust）已接手 fetching 與 linking**，
+resolution 與 lockfile 仍由 TypeScript 負責。它改變的是「安裝慢不慢」這個前提，
+**不改變三層架構**——這頁與前三頁的所有推論在 pacquet 之後仍然成立。

@@ -1,0 +1,205 @@
+---
+title: 模板
+description: 八個可直接貼上執行的骨架
+order: 5
+sidebarLabel: 模板
+---
+
+> 用法：每個模板的**骨架固定**，只動控制變因欄。刻意一次只換一個變因，
+> 觀察 `pnpm install` 的輸出與 `node_modules` 的形狀怎麼變 —— 這比通讀文件快得多。
+
+以 **pnpm 10.34.5** 為準。與 v11 不同之處已在表格內標注。
+
+## T1 — 主骨架：`pnpm-workspace.yaml`
+
+其餘七個模板都掛在這個檔案上。它是設定的家，不是 `.npmrc`，也不是
+`package.json` 的 `pnpm` 欄位。
+
+```yaml
+# pnpm-workspace.yaml —— 放在 repo 根目錄
+packages:
+  - .                     # ← 動這一行
+```
+
+| 控制變因 | 換法 | 什麼時候換 |
+|---|---|---|
+| `packages` | `- .` / `- 'packages/*'` / `- 'packages/**'` / `- 'apps/*'` + `- 'packages/*'` | 出現**第二個要獨立發布或獨立部署的產物**時才從 `- .` 改掉。檔案變多不是理由 |
+| 巢狀深度 | `packages/*` / `packages/**` | 只有真的需要 `packages/group/pkg` 兩層時才用 `**`。`**` 會讓 glob 掃描變慢，且容易誤收 test fixture |
+| 排除 | 在後面加 `- '!packages/**/test/**'` | 目錄裡有假的 `package.json`（測試 fixture）被誤收成成員時 |
+
+## T2 — 跨環境版本一致（Cloudflare Pages / Vercel / CI）
+
+「本機好、CI 壞」的第一嫌疑犯。這個模板動的是 `package.json`，不是 T1。
+
+```json
+{
+  "packageManager": "pnpm@10.34.5"
+}
+```
+
+上面那一行就是要動的那一行——它是本模板唯一的變因來源，下表全部圍繞它。
+
+| 控制變因 | 換法 | 什麼時候換 |
+|---|---|---|
+| 版本號 | 你本機 `pnpm --version` 的**完整**版本 | 永遠釘完整三段。寫 `pnpm@10` 等於沒釘，解析行為仍可能不同 |
+| 不符時的行為（v10） | `managePackageManagerVersions: true`（預設）/ `false` | 預設會**自動下載**宣告的版本，這通常是你要的。設 `false` 只在受管環境（已用 Corepack 或映像檔預裝）才有意義 |
+| 不符時的行為（v11） | `pmOnFail: download`（預設）\| `error` \| `warn` \| `ignore` | 想讓不一致**直接失敗**而不是靜默自我修正時設 `error` —— 適合不希望 CI 在建置期下載執行檔的環境 |
+
+實例：本機 `10.34.5`、Cloudflare Pages 用 `10.11.1`，兩邊解析結果不同。
+加上這一行之後 CF 會自己抓 `10.34.5`，落差消失。
+
+## T3 — build script 審核
+
+```yaml
+# pnpm-workspace.yaml
+allowBuilds:
+  esbuild: true           # ← 動這一行
+  sharp: true
+  core-js: false
+```
+
+不要手寫，用指令產生（它會直接改上面這個檔案）：
+
+```bash
+pnpm approve-builds                          # 互動選單
+pnpm approve-builds esbuild sharp '!core-js' # 直接指定，! 表示拒絕
+```
+
+| 控制變因 | 換法 | 什麼時候換 |
+|---|---|---|
+| 值 | `true` / `false` | `true` = 需要跑（原生編譯、下載 binary）。**`false` 不等於留空** —— 它記錄「我審核過，不需要」，留空則是「還沒看」 |
+| 版本限定 | `nx@21.6.4: true` / `'nx@21.6.0': false` | 只有特定版本的 build script 可信時。多數情況不需要 |
+| 全開 | `dangerouslyAllowAllBuilds: true` | 幾乎永遠不要。名字裡的 dangerously 是認真的 —— 它讓任何依賴都能在你的機器上執行任意程式碼 |
+| 嚴格度（v11） | `strictDepBuilds: true`（預設） | 預設會讓「有未審核的 build script」以非零離開碼失敗。想降級成警告時才動 |
+
+## T4 — 修別人的套件（最容易混淆的一組）
+
+三個設定都在「改第三方套件」，但改的東西完全不同。這是本頁最該一次讀完的一節。
+
+```yaml
+# pnpm-workspace.yaml
+overrides:
+  foo: ^1.0.0             # ← 動這一行
+
+packageExtensions:
+  react-redux:
+    peerDependencies:
+      react-dom: '*'
+
+patchedDependencies:
+  some-pkg@1.2.3: patches/some-pkg@1.2.3.patch
+```
+
+| 手段 | 改的是 | 什麼時候換 |
+|---|---|---|
+| `overrides` | **版本** | 版本不對、或想強制整棵樹收斂到同一版。成本最低，不留維護債。有安全公告要急救時的第一選擇 |
+| `packageExtensions` | **manifest**（依賴 / peer / optional 宣告） | 上游漏宣告依賴或 peer。它只補宣告，不動任何原始碼，升級時通常不會壞 |
+| `patchedDependencies` | **原始碼** | 上游有 bug 且不修，而你必須改行為。**最後手段** —— 每次升級都要重新對齊 patch |
+
+`overrides` 的幾種寫法：
+
+| 寫法 | 意思 | 什麼時候用 |
+|---|---|---|
+| `foo: ^1.0.0` | 全樹的 foo 都換 | 一般收斂 |
+| `bar@^2.1.0: 3.0.0` | 只換符合 `^2.1.0` 的那些 | 想保留其他版本分支時 |
+| `qar@1>zoo: '2'` | 只換 `qar@1` 底下的 `zoo` | 精準開刀，不影響其他人的 zoo |
+| `quux: npm:@myorg/quux@^1.0.0` | 換成另一個套件 | 換 fork 或換 scope |
+| `'foo@1.0.0>bar': '-'` | 移除依賴 | 上游多裝了不需要的東西 |
+
+產生 patch 的流程：
+
+```bash
+pnpm patch some-pkg@1.2.3     # 開一個暫存目錄給你改
+# 改完之後
+pnpm patch-commit <暫存目錄路徑>   # 產生 .patch 並寫進 pnpm-workspace.yaml
+```
+
+`.patch` 檔要進版控，它是 repo 的一部分。
+
+## T5 — hoist 開洞（第二組容易混淆）
+
+```yaml
+# pnpm-workspace.yaml
+hoistPattern:
+  - '*'                   # ← 動這一行（這就是預設值）
+
+publicHoistPattern: []
+```
+
+| 設定 | 預設 | 目的地 | 什麼時候換 |
+|---|---|---|---|
+| `hoistPattern` | `['*']` | `node_modules/.pnpm/node_modules`（隱藏層，套件間可見） | **它預設已全開**，所以你動它通常是為了**縮小**範圍。想更嚴格時改成白名單 |
+| `publicHoistPattern` | `[]` | 專案根 `node_modules`（你的程式碼可見） | 某個工具堅持要在根目錄看到套件（少數 ESLint / TS 外掛生態）。**這才是真正的開洞**，會犧牲幻影依賴防護 |
+| 樣式語法 | `'*eslint*'` / `'!@types/react'` | 兩者都支援 `!` 排除 | 需要「全部 types 但排除某一個」時 |
+| 全部投降 | `nodeLinker: hoisted` | 回到 npm 的扁平佈局 | 有套件完全不吃 symlink，且上述手段都無效時。等於放棄三層架構，最後手段 |
+
+判斷順序：**補宣告 → `packageExtensions` → `publicHoistPattern` → `nodeLinker: hoisted`**。
+每往右一步，換到的方便越少、失去的嚴格性越多。
+
+## T6 — catalog
+
+```yaml
+# pnpm-workspace.yaml
+catalog:
+  react: ^18.2.0          # ← 動這一行
+```
+
+```json
+{
+  "dependencies": {
+    "react": "catalog:"
+  }
+}
+```
+
+| 控制變因 | 換法 | 什麼時候換 |
+|---|---|---|
+| 單數 / 複數 | `catalog:` / `catalogs:` | 只有一組版本用單數。需要**多組並存**（新舊 React、Vite 與 Webpack 兩條管線）才用複數 |
+| 引用語法 | `"catalog:"` / `"catalog:default"` / `"catalog:react18"` | 前兩者等價。具名時必須與 `catalogs` 下的 key 完全一致 |
+| 收哪些套件進 catalog | 只收「多個 package 都要、且必須同版」的 | 只有一個 package 用到的東西進 catalog 是純粹的間接層，直接寫版號更好讀 |
+| 具名分組的切法 | 依 **runtime 邊界**（`app-runtime` / `nitro-runtime` / `build` / `dev`） | 分組是為了讓「瀏覽器端」與「伺服器端」能獨立演進。**不要**按字母或按 scope 分 |
+
+發布時 `catalog:` 會被換成真實版號，下游用 npm / Yarn 不受影響。
+
+## T7 — filter 選擇器
+
+```bash
+pnpm --filter "...[origin/main]" test    # ← 動這一行
+```
+
+| 控制變因 | 換法 | 什麼時候換 |
+|---|---|---|
+| 要不要含自己 | `...pkg` / `"...^pkg"` | 帶 `^` 表示**排除自己**。「我剛建好了，只要重建依賴我的人」時用 `^` |
+| 方向 | `pkg...`（往依賴走）/ `...pkg`（往依賴者走） | 測試往**依賴者**走（改動會影響誰）；建置往**依賴**走（我需要誰先好） |
+| 變更基準 | `[origin/main]` / `[HEAD~1]` / `[v1.0.0]` | CI 用 `[origin/main]`；本機驗證上一個 commit 用 `[HEAD~1]` |
+| 排除 | 前綴 `!`，如 `--filter '!./docs/**'` | 想跑「全部除了某些」時。比列舉要跑的短得多 |
+| 順序 | 預設拓撲 / `--parallel` / `--stream` | 任務**彼此獨立**（各自的 dev server）才用 `--parallel`。要即時看輸出但保留順序用 `--stream` |
+
+## T8 — CI 腳本骨架
+
+```yaml
+# .github/workflows/ci.yml 片段
+- uses: pnpm/action-setup@v4        # 版本從 package.json 的 packageManager 讀
+- uses: actions/setup-node@v4
+  with:
+    node-version: 22
+    cache: pnpm                     # ← 動這一行
+- run: pnpm install --frozen-lockfile
+- run: pnpm build
+```
+
+| 控制變因 | 換法 | 什麼時候換 |
+|---|---|---|
+| cache 對象 | `cache: pnpm`（快取 store）/ 手動快取 `node_modules` | **永遠快取 store，不要快取 `node_modules`**。後者把三層架構壓回一層，還會讓 symlink 在還原後失效 |
+| lockfile 嚴格度 | `--frozen-lockfile`（CI 已是預設）/ `--no-frozen-lockfile` | 顯式寫出來是為了讓任何人試圖關掉它時，在 code review 裡看得見。`--no-` 那個永遠是紅燈 |
+| pnpm 版本來源 | `package.json` 的 `packageManager` / action 的 `version` 參數 | 一律讓它讀 `packageManager`，不要在 CI 設定裡再寫一次版本 —— 兩處版本號會分岔 |
+| 安裝範圍 | 全裝 / `--filter "...[origin/main]"` | monorepo 大到安裝本身成為瓶頸時才動。單一 package 專案不需要 |
+
+## 一次只動一個
+
+這八個模板的價值不在於背下來，而在於**改一行、跑一次、看差別**。
+
+最值得親手做一次的是 T5：把 `publicHoistPattern` 加上一個套件，
+然後回到[三層架構](/docs/pnpm/architecture)那頁的 `ls -l node_modules/` 指令，
+看根目錄多出了什麼。那個「多出來的東西」就是幻影依賴的入口——
+親眼看過一次，之後就不會想開它了。
