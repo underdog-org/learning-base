@@ -37,6 +37,39 @@ try {
   fail(`找不到產物目錄 ${config.distDir}/，請先執行 astro build`);
 }
 
+// ------------------------------------------------------- 盲區前置檢查
+//
+// 以下所有檢查都以 distDir（Cloudflare adapter 的 client 產物）為基準，
+// worker 那半邊完全不在視野內。目前所有路由都預渲染、serverDir 為空，
+// 因此沒有漏掉任何東西 —— 但這是「現在剛好成立」而非「設計上成立」：
+// 哪天出現 on-demand 路由，閘門不會變紅，只會繼續回報 client 的數字並
+// 通過。這正是階段六補那個 bug 的形狀（失敗看起來跟成功一模一樣），
+// 所以這裡寧可過度反應：serverDir 一出現 JS 就直接失敗，逼人回來處理，
+// 而不是讓一筆沒人量的體積悄悄上線。
+const serverDir = config.serverDir ? resolve(root, config.serverDir) : null;
+if (serverDir) {
+  let serverFiles = [];
+  try {
+    serverFiles = walk(serverDir);
+  } catch {
+    // 目錄不存在 = adapter 沒產出 worker，沒有盲區可言。
+  }
+  const serverJs = serverFiles.filter((f) => /\.(js|mjs|cjs)$/.test(f));
+  if (serverJs.length > 0) {
+    fail(
+      `${config.serverDir}/ 出現 ${serverJs.length} 支 JS，代表已有 on-demand 路由。\n` +
+        `  ${serverJs.map((f) => relative(serverDir, f)).slice(0, 5).join("\n  ")}` +
+        (serverJs.length > 5 ? `\n  …等 ${serverJs.length} 支` : "") +
+        `\n\n  閘門的每一條檢查都以 ${config.distDir}/ 為基準，worker 的 JS 不在視野內：` +
+        `\n  它不會被計入任何一條紅線，而閘門仍會回報「全數通過」—— 那是綠燈的謊。` +
+        `\n\n  修法是讓本腳本明確認知兩個目錄（client 走現有的「由頁面反推」路徑，` +
+        `\n  server 另外量並開一條屬於它的紅線），而不是把 distDir 改回 dist ——` +
+        `\n  後者會重現「頁面裡的 /_astro/… 對不上 /client/_astro/…」的 key 問題，` +
+        `\n  結果是所有由頁面反推的檢查一起讀成 0。`,
+    );
+  }
+}
+
 const sizeOf = (path) => statSync(path).size;
 const gzipOf = (path) => gzipSync(readFileSync(path)).length;
 
