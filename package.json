@@ -10,10 +10,13 @@
     "dev": "astro dev",
     "build": "astro build && node scripts/perf-budget.mjs",
     "perf": "node scripts/perf-budget.mjs",
-    "preview": "astro preview",
-    "astro": "astro"
+    "preview": "pnpm --filter learning-base... run build && wrangler dev",
+    "astro": "astro",
+    "generate-types": "wrangler types",
+    "deploy": "pnpm --filter learning-base... run build && wrangler deploy"
   },
   "dependencies": {
+    "@astrojs/cloudflare": "^14.1.5",
     "@astrojs/markdown-remark": "^7.2.1",
     "@astrojs/mdx": "^7.0.4",
     "astro": "^7.1.4",
@@ -21,5 +24,8 @@
     "rehype-autolink-headings": "^7.1.0",
     "remark-cjk-friendly": "^2.3.1",
     "unist-util-visit": "^5.1.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.114.0"
   }
 }

@@ -8,6 +8,8 @@ import remarkCjkFriendly from "remark-cjk-friendly";
 import { rehypeTableWrapper } from "./src/plugins/rehype-table-wrapper.mjs";
 import { rehypeExternalLinks } from "./src/plugins/rehype-external-links.mjs";
 
+import cloudflare from "@astrojs/cloudflare";
+
 // EC 的 UI 文字預設為英文，而複製鈕的 tooltip 是全站唯一會被讀者看到的
 // 介面字串 —— 中文站上留一顆寫著 Copy to clipboard 的按鈕很突兀。
 // EC 不讀 <html lang>，它的 locale 來自自己的 defaultLocale（預設 "en"），
@@ -81,6 +83,7 @@ export default defineConfig({
   // 在自己初始化時就會固定住當下的 markdown 設定 —— 排在後面等於沒裝，
   // .md 會生效而 .mdx 靜默地維持 Shiki 原樣，兩種副檔名產出不同標記。
   integrations: [expressiveCode(expressiveCodeOptions), mdx()],
+
   markdown: {
     // CommonMark 的強調符判定規則以「標點 / 空白 / 其他」三分法決定
     // delimiter run 的 flanking 性質，而全形標點被歸入「標點」後，
@@ -133,4 +136,6 @@ export default defineConfig({
     // 原本的 defaultColor: false 也不再需要 —— EC 不寫 inline 顏色，
     // 深淺切換由它自己產生的 @media (prefers-color-scheme) 規則負責。
   },
+
+  adapter: cloudflare(),
 });
