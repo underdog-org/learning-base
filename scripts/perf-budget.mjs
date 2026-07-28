@@ -266,15 +266,11 @@ const checks = [
     detail: `${externalCss.length} 支，gzip ${fmt(sum(externalCss.map(gzipOf)))}`,
   },
   {
-    // 內嵌樣式：每一次頁面導覽都重付一次，且無法快取。在站內導覽為主的
-    // 側寫下，這才是會被瀏覽頁數乘上去的那一項，紅線刻意設緊。
-    //
-    // 撞線的正確反應是把 astro.config.mjs 的 inlineStylesheets 改為 "never"，
-    // 讓這些 bytes 移進上面那條可快取的桶子，而不是調高這裡。
-    // Astro 預設的 "auto"（<4KB 即內嵌）優化的是「只看一頁就走」的落地頁，
-    // 那與文檔站的側寫相反。
+    // 內嵌樣式：每一次頁面導覽都重付一次，且無法快取。階段七起
+    // astro.config.mjs 設定 inlineStylesheets: "never"，這條因此不再是
+    // 預算而是回歸測試 —— 上限為 0，任何內嵌都代表有東西繞過了設定。
     key: "pageInlineCss",
-    label: "單頁內嵌 CSS（最大）",
+    label: "單頁內嵌 CSS（應為 0）",
     actual: worstInlineCss.inlineCss,
     detail: `${worstInlineCss.path}；全站 ${pages.length} 頁共內嵌 ${fmt(sum(pages.map((p) => p.inlineCss)))}`,
   },
@@ -331,8 +327,9 @@ for (const f of failures) {
   }
   if (f.key === "pageInlineCss") {
     console.error(
-      `      內嵌樣式每次頁面導覽都重付。先考慮 astro.config.mjs 的` +
-        ` inlineStylesheets: "never"，\n      把這些 bytes 移進「外部 CSS（可快取）」，而非調高本條。`,
+      `      astro.config.mjs 已設定 inlineStylesheets: "never"，這條的期望值是 0。` +
+        `\n      出現內嵌代表有東西繞過了那個設定（新元件的 is:inline、整合套件自行注入、` +
+        `\n      或設定被改動）—— 那是退化而非成長，請找出來源，不要調高本條。`,
     );
   }
 }
