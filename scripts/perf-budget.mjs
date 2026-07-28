@@ -11,7 +11,7 @@
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { gzipSync } from "node:zlib";
-import { join, relative, resolve, extname } from "node:path";
+import { join, relative, resolve, extname, dirname } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
 const config = JSON.parse(
@@ -99,9 +99,18 @@ const assetFiles = files.filter((f) => ASSET_EXT.has(extname(f).toLowerCase()));
 // ---------------------------------------------------------------- 逐頁分析
 
 // 只計算「瀏覽器在載入當下就會抓」的 JS：<script src>、inline script、
-// modulepreload。client:visible / client:idle 的元件走的是執行期 dynamic
-// import，Astro 不會為它們發 modulepreload，因此自然不計入 —— 這正是我們
-// 要保護的性質，而不是漏算。
+// modulepreload，**以及這些檔案靜態 import 進來的所有 chunk**。延後載入的
+// 元件走執行期 dynamic import，沒有任何 HTML 引用也不在任何被引用 chunk 的
+// 靜態 import 圖上，因此自然不計入 —— 這正是我們要保護的性質，而不是漏算。
+//
+// 靜態 import 那半句是階段八補的，而它補的是一個貨真價實的漏算：
+// Rollup 會把多個動態 import 點共用的 Vite preload helper 抽成獨立 chunk，
+// 那支 chunk 只被 entry chunk 以 import 敘述引用，HTML 裡沒有它的名字。
+// 只認 HTML 的話它就從「人人都付」消失 —— 而它是靜態 import，瀏覽器載入
+// 頁面時必然抓它。實測後果比漏算更糟：階段八新增第二個動態 import 點時，
+// helper 從 SiteSearch 的 chunk 內嵌變成獨立檔（1394 B），閘門於是把
+// 「共用 JS」從 6.9 KB 報成 6.0 KB —— 初始 JS 實際增加約 500 B，報告卻說減少
+// 900 B。這又是一次「綠燈的謊」，形狀與階段六補的量錯目錄完全相同。
 //
 // CSS 走的是另一套語意，理由見下方 cssCacheable / pageInlineCss 兩條檢查。
 // 這裡只負責把兩種來源分開收集：外部檔（<link rel=stylesheet>）與內嵌
@@ -113,6 +122,47 @@ const STYLE_TAG = /<style\b[^>]*>([\s\S]*?)<\/style>/gi;
 const LINK_TAG = /<link\b([^>]*)>/gi;
 const attr = (attrs, name) =>
   attrs.match(new RegExp(`${name}\\s*=\\s*["']([^"']*)["']`, "i"))?.[1];
+
+/**
+ * 一支 chunk 靜態 import 了哪些檔案。
+ *
+ * 只認靜態形式（`from"./x.js"` 與副作用式的 `import"./x.js"`）—— 動態
+ * import 一律寫成 `import("./x.js")`，帶括號、不帶 from，因此不會被這裡
+ * 匹配到。這個區別就是「人人都付」與「按需才付」的分界線，寫死在正則裡
+ * 比寫在註解裡可靠。
+ */
+const STATIC_IMPORT = /(?:\bfrom|\bimport)\s*["']([^"']+)["']/g;
+const depsCache = new Map();
+function staticDeps(file) {
+  let deps = depsCache.get(file);
+  if (deps) return deps;
+
+  deps = [];
+  const dir = dirname(file);
+  for (const [, spec] of readFileSync(file, "utf8").matchAll(STATIC_IMPORT)) {
+    // 只跟得動相對路徑（同一份產物內）。裸模組名在瀏覽器沒有 import map
+    // 也走不通，不會出現在產物裡。
+    if (!spec.startsWith(".")) continue;
+    const target = resolve(dir, spec);
+    if (files.includes(target)) deps.push(target);
+  }
+
+  depsCache.set(file, deps);
+  return deps;
+}
+
+/** 從一支 chunk 出發，靜態可達的全部檔案（含自己）。 */
+function reachable(entry) {
+  const seen = new Set();
+  const stack = [entry];
+  while (stack.length > 0) {
+    const file = stack.pop();
+    if (seen.has(file)) continue;
+    seen.add(file);
+    stack.push(...staticDeps(file));
+  }
+  return seen;
+}
 
 const pages = [];
 const referenceCount = new Map(); // JS 檔案 → 引用它的頁面數
@@ -133,6 +183,19 @@ for (const html of htmlFiles) {
     if (file) referenceCount.set(file, (referenceCount.get(file) ?? 0) + 1);
   };
 
+  // 同一支檔案可能被 <script src> 與 modulepreload 同時指到，也可能是兩支
+  // entry chunk 的共同靜態依賴 —— 每頁只能算一次。
+  const counted = new Set();
+
+  /** 記一支 HTML 引用到的 JS，連同它靜態 import 進來的所有 chunk。 */
+  const addJs = (label, file) => {
+    for (const dep of reachable(file)) {
+      if (counted.has(dep)) continue;
+      counted.add(dep);
+      add(dep === file ? label : `${rel(dep)}（靜態 import）`, sizeOf(dep), dep);
+    }
+  };
+
   for (const [, attrs, body] of source.matchAll(SCRIPT_TAG)) {
     // JSON-LD 之類的資料區塊不是可執行的 JS，跳過。
     const type = attr(attrs, "type");
@@ -142,7 +205,7 @@ for (const html of htmlFiles) {
     const src = attr(attrs, "src");
     if (src) {
       const file = byUrl.get(src);
-      if (file) add(src, sizeOf(file), file);
+      if (file) addJs(src, file);
     } else if (body.trim()) {
       add("(inline)", Buffer.byteLength(body, "utf8"));
     }
@@ -159,8 +222,7 @@ for (const html of htmlFiles) {
     if (!file) continue;
 
     if (/\bmodulepreload\b/i.test(relAttr)) {
-      // modulepreload 與 <script src> 可能指向同一支檔案，別重複計算。
-      if (!page.scripts.some((s) => s.label === href)) add(href, sizeOf(file), file);
+      addJs(href, file); // 重複的部分由 addJs 的 counted 擋掉
     } else if (/\bstylesheet\b/i.test(relAttr)) {
       if (!page.cssFiles.includes(file)) page.cssFiles.push(file);
     }
@@ -175,6 +237,36 @@ const worstPage = pages.reduce((a, b) => (b.bytes > a.bytes ? b : a), emptyPage)
 // 被兩個以上頁面引用者視為共用 chunk —— 亦即位在「所有讀者都要付錢」的路徑上。
 const sharedJs = [...referenceCount].filter(([, n]) => n > 1).map(([f]) => f);
 const sharedBytes = sum(sharedJs.map(sizeOf));
+
+// 延後載入的自有元件（階段八）。
+//
+// 定義是「沒有任何頁面在初始載入時抓它」—— 亦即 HTML 沒有引用，**且**不在
+// 任何被引用 chunk 的靜態 import 圖上（上方 reachable() 已把後者算進
+// referenceCount）。那正是延後載入的可觀測特徵：載入器在執行期才 import()，
+// Rollup 因此把元件切成獨立 chunk，沒有任何東西在載入當下指向它。
+//
+// 「靜態 import 圖」這一半不能省。只問「HTML 有沒有引用」的話，Vite 的
+// preload helper 這種「被 entry chunk 靜態 import、但 HTML 裡沒有名字」的
+// chunk 會落進這條底網，被歸類成按需 —— 它其實人人都付。分類錯的方向還特別
+// 糟：它會讓「人人都付」的數字在實際變大時看起來變小。
+//
+// 但「看不到」與「不存在」在報告裡長得一樣，而這個站已經被這種形狀騙過一次
+// （階段六補：閘門量錯目錄，回報 0 B 與全數通過）。因此這條是**底網**而非
+// 清單：ADR 0008 要求每一項排除都要開一條屬於自己的紅線，但那條規則靠人記得，
+// 忘記開的下場是那筆體積永遠不會失敗。有了底網，新元件不開專屬紅線也不會消失
+// —— 它會自動落在這裡；而大型套件另開專屬紅線之後，再從這裡扣除。
+const COVERED_BY_OWN_LINE = [
+  isSearchFile, // → onDemand.searchRuntime / searchIndex
+  // 階段九的 gsap、階段十的 CodeMirror 各自開專屬紅線之後，判定加在這裡。
+  // 扣除的用意與 singleChunk 排除 pagefind 相同：一支 200KB 的第三方執行期
+  // 會讓「我們自己的按需元件有多大」這個訊號完全讀不出來。
+];
+const deferredJs = files.filter(
+  (f) =>
+    f.endsWith(".js") &&
+    !referenceCount.has(f) &&
+    !COVERED_BY_OWN_LINE.some((covered) => covered(f)),
+);
 
 // 搜尋 bundle 內部再分兩類，因為兩者的成長曲線完全不同：執行期是一次性的
 // 固定成本，索引則隨內容線性成長。合成一個數字的話，155KB 的固定成本會把
@@ -247,6 +339,19 @@ const checks = [
     detail: searchIndexFiles.length
       ? `${searchIndexFiles.length} 個分片`
       : "未產生（尚未執行 pagefind）",
+  },
+  {
+    // 延後載入的自有元件。詳見上方 deferredJs 的註解 —— 這條的作用是底網：
+    // 讓「沒有任何 HTML 引用」的產物有一個必然會被評估的位置，而不是靠
+    // 「記得為它開一條紅線」。撞線時第一個要問的不是「該調高嗎」，而是
+    // 「它還是按需的嗎」：若某個元件不小心變成靜態 import，它會從這條
+    // 消失並出現在 sharedJs，兩邊的數字會同時動。
+    key: "deferredIslands",
+    label: "延後載入的元件",
+    actual: sum(deferredJs.map(sizeOf)),
+    detail: deferredJs.length
+      ? `${deferredJs.length} 支：${deferredJs.map(rel).join(", ")}`
+      : "無（尚無延後載入的元件）",
   },
   {
     key: "staticAssets",
