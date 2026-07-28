@@ -1,0 +1,162 @@
+---
+title: 三層架構
+description: store、virtual store、專案 node_modules —— 以及如何在自己的機器上驗證每一層。
+order: 1
+sidebarLabel: 三層架構
+---
+
+pnpm 的全部行為都從這三層推導出來。這一頁的目標不是讓你「知道有三層」，
+而是讓你能在自己的專案上**跑出證據**。
+
+
+## 結構
+
+```text
+~/Library/pnpm/store/v10/                  ← 第一層：全域 store
+        ▲                                     一份內容全機器只存一次
+        │ clone (CoW) / hardlink / copy
+        │ 由 packageImportMethod: auto 依檔案系統能力降級
+        │
+node_modules/.pnpm/                        ← 第二層：virtual store（扁平）
+├── pagefind@1.5.2/
+│   └── node_modules/
+│       └── pagefind/                      ← 內容來自第一層
+├── astro@7.1.4_@astrojs+markdown-remark@7.2.1_.../
+│   └── node_modules/
+│       ├── astro/
+│       └── (依賴) -> ../../(依賴)@版本/node_modules/(依賴)
+└── node_modules/                          ← 隱藏 hoist 層（hoistPattern 預設 '*'）
+        ▲                                     套件間共享，你的程式碼看不到
+        │ symlink
+        │
+node_modules/                              ← 第三層：專案可見範圍
+├── astro -> .pnpm/astro@7.1.4_.../node_modules/astro
+├── pagefind -> .pnpm/pagefind@1.5.2/node_modules/pagefind
+└── (只有你在 package.json 宣告過的)
+```
+
+三句話記住：
+
+- **第一層決定磁碟成本，第三層決定可見性** → 省磁碟與防幻影依賴是兩個不同機制在做的事，不要混為一談
+- **第二層是扁平的** → `.pnpm/` 底下沒有巢狀樹，非扁平性是靠每個目錄內部再放 symlink 表達的
+- **隱藏 hoist 層存在** → pnpm 保護的是「你的程式碼」，不是整棵依賴樹
+
+## 在你自己的專案上驗證
+
+以下每條指令都在一個**範例專案**上跑過：單一 package 的 Astro 7 站台
+（Cloudflare adapter，8 個直接依賴），環境是 pnpm 10.34.5、macOS APFS。
+輸出貼在下方當對照組。
+
+**數字會不同，形狀應該一樣。** 你的依賴數、hoist 層大小、雜湊比例都取決於
+自己的依賴樹；要看的是各層的**比例關係**，不是絕對值。
+
+### 第一層：store 在哪
+
+```bash
+pnpm store path
+# /Users/<你的帳號>/Library/pnpm/store/v10
+```
+
+**不要背路徑。** 官方文件列的是 `~/Library/pnpm/store`（macOS），實際還會多一層
+版本目錄 `v10`，而且 `$PNPM_HOME` / `$XDG_DATA_HOME` 都會覆寫它。永遠用
+`pnpm store path` 問。
+
+### 第三層：根目錄只有你宣告的東西，而且是 symlink
+
+```bash
+ls -l node_modules/ | grep '^l'
+# lrwxr-xr-x  astro -> .pnpm/astro@7.1.4_@astrojs+markdown-remark@7.2.1_.../node_modules/astro
+# lrwxr-xr-x  pagefind -> .pnpm/pagefind@1.5.2/node_modules/pagefind
+# ...
+```
+
+行首的 `l` 就是 symlink。範例專案的根目錄（排除 `.pnpm`）只有 **8** 個項目，
+而 `.pnpm` 底下有 **371** 個——那 363 個差額就是「你用不到、也看不到」的傳遞依賴。
+這個數字差就是幻影依賴被擋掉的量。
+
+> scope 目錄（`@astrojs/`）本身是真目錄，symlink 在它裡面，所以
+> `grep '^l'` 的行數會比項目數少。要數項目用 `ls -A node_modules | grep -v '^\.pnpm$'`。
+
+### 第二層：扁平，而且 peer 寫在目錄名裡
+
+```bash
+ls node_modules/.pnpm | head -4
+# @astrojs+compiler-binding-darwin-arm64@0.3.1
+# @astrojs+compiler-binding@0.3.1_@emnapi+core@1.11.1_@emnapi+runtime@1.11.3
+# @astrojs+internal-helpers@0.10.1
+# @astrojs+markdown-remark@7.2.1
+```
+
+注意兩件事：
+
+1. **全部同一層**，沒有巢狀。scope 的 `/` 被換成 `+`，因為目錄名不能有斜線。
+1. **底線之後是 peer 集合。** `@astrojs+compiler-binding@0.3.1_@emnapi+core@1.11.1_@emnapi+runtime@1.11.3`
+   的意思是「這份 compiler-binding 是在 emnapi 那組 peer 下解析出來的」。同一個
+   `0.3.1` 若被另一組 peer 用到，會再產生一個目錄——這就是「同一個套件裝了好幾份」的真相。
+
+peer 集合太長時，尾端會換成雜湊：
+
+```bash
+ls node_modules/.pnpm | grep -c '_'                 # 20 個帶 peer 標記
+ls node_modules/.pnpm | grep -cE '_[0-9a-f]{32}$'   # 其中 2 個尾端是雜湊
+# @astrojs+cloudflare@14.1.5_astro@7.1.4_..._88564970364bf708fa5f59aa0a99b1f6
+```
+
+官方文件的範例（`foo@1.0.0_bar@1.0.0+baz@1.0.0`）是可讀形式，
+但真實專案的路徑長度會撞上檔案系統上限，所以短的可讀、長的變雜湊。**兩種都會遇到**，
+而且比例會隨依賴深度變化——範例專案 371 個目錄裡只有 20 個帶 peer 標記、2 個變雜湊。
+
+### 隱藏 hoist 層：pnpm 其實會 hoist
+
+這是最容易被漏掉的一層，也是「pnpm 完全不 hoist」這個說法錯的地方。
+
+```bash
+ls node_modules/.pnpm/node_modules | wc -l
+# 310
+```
+
+`hoistPattern` 預設是 `['*']`，所有套件都會被 hoist 到這個隱藏目錄。它在
+`.pnpm/` 底下，所以**你的程式碼看不到**（第三層沒有它），但**其他套件看得到**。
+
+推論：一個寫壞的第三方套件，import 了自己沒宣告的東西，在 pnpm 底下**照樣跑得起來**。
+pnpm 把 hoist 從「專案可見」降級為「僅套件間可見」，而不是消除它。
+
+### 第一層的共用：為什麼 `stat` 會騙你
+
+直覺的驗證方式是查 hard link 數，但在 macOS 上它會失敗：
+
+```bash
+stat -f "links=%l inode=%i" node_modules/.pnpm/pagefind@1.5.2/node_modules/pagefind/package.json
+# links=1 inode=3386333
+```
+
+`links=1` 看起來像「沒有共用，就是複製」。**這個結論是錯的。**
+
+原因是 `packageImportMethod` 預設 `auto`，它的降級順序是
+**clone（CoW／reference link）→ hardlink → copy**。APFS 支援 clone，
+所以 pnpm 走的是 clone 而不是 hard link——檔案有自己的 inode、連結數是 1，
+但磁碟區塊是與 store 共享的，寫入時才分岔。
+
+在 APFS 上有效的證據是**觀察 store 的成長量**：
+
+```bash
+du -sk "$(pnpm store path)" | cut -f1     # 2312440 KB
+
+mkdir /tmp/cowtest && cd /tmp/cowtest
+echo '{"name":"cowtest","private":true}' > package.json
+pnpm add pagefind@1.5.2
+
+du -sk "$(pnpm store path)" | cut -f1     # 2312440 KB —— 成長 0 KB
+du -sh node_modules | cut -f1             # 55M
+```
+
+新專案的 `node_modules` 表面上占 55M，**store 卻一個 byte 都沒長**。
+這才是「一份內容全機器只存一次」的實證，而且它在三種 import 方式下都成立。
+
+**同一顆磁碟是前提。** 官方原話：
+
+> The store should be always on the same disk on which installation is happening,
+> so there will be one store per disk.
+
+跨磁碟時 clone 與 hardlink 都不成立，只能 copy，上面那個 0 KB 就會變成 55M。
+

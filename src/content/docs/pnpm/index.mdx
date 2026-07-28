@@ -1,0 +1,94 @@
+---
+title: pnpm
+description: 從三層架構推導出全部行為，而不是背指令。
+order: 0
+sidebarLabel: 總覽
+---
+
+> 以下以 **pnpm 10.34.5** 為準，查證日期 **2026-07-28**。
+> 與 v11 的關鍵差異已逐條標注 —— pnpm.io 官方文件目前呈現的是 v11，
+> 若你的 `packageManager` 還停在 v10，直接照抄官方文件會寫出跑不動的設定。
+> 看到 `pmOnFail`、`package.json#pnpm` 被移除這類敘述，就知道那份資料是 v11。
+> 先跑 `pnpm --version` 確認自己在哪一版。
+
+多數 pnpm 教學的順序是：先講「它比 npm 快」，再列一串指令，最後附一節疑難排解。
+
+這條路徑的問題是疑難排解永遠列不完。pnpm 的每一個「怪行為」——讀不到套件、
+同一個套件裝了三份、裝完少了 binary、Docker 裡整包壞掉——都是**同一組架構決策的推論**。
+把架構放在前面，疑難排解就縮成四個分支。
+
+## 這裡的取徑
+
+先建立三層架構的直覺，再從它推出所有行為。指令與設定放在最後，因為那些可以現查，
+而直覺不行。
+
+其中一個判斷值得先說：**「杜絕幻影依賴」在 2026 年已經不是選 pnpm 的理由。**
+Bun v1.3.2（2025-10）起，新建的 monorepo 預設就是隔離式佈局；Yarn PnP 用 resolver
+達到同樣效果。隔離已是業界共識。pnpm 真正剩下的差異是**跨專案共用的全域 store**
+與 **catalog**，這也是本站把篇幅押在這兩處的原因。
+
+## 分層索引
+
+每一條都是可獨立看懂的結論。層與層之間是認知依賴——不懂上一層，下一層會看不懂，
+不是難度遞增。
+
+> 條目以 **`L層-序號`** 指涉，例如 `L1-4` 是「pnpm 預設仍然 hoist」那條。
+> 全站交叉引用都用這個寫法。
+
+1. **L0 — 為什麼是 pnpm**：先確定你要的是它解的問題。
+   1. pnpm 不是「更快的 npm」，是 `node_modules` 佈局不同的 npm；快是佈局的副作用，不是賣點
+   2. 隔離式佈局已是共識（Bun 新 monorepo 預設 isolated、Yarn PnP 用 resolver），所以杜絕幻影依賴是 pnpm 的**機制**，不再是選它的**理由**
+   3. 2026 年還站得住的三個理由：**跨專案共用的全域 store**（Bun 的 store 在專案內，十個專案十份）、**catalog**（Bun、Yarn 目前沒有等價物），以及**內建的供應鏈冷卻期**（`minimumReleaseAge` / `trustPolicy`）
+   4. 它不做什麼：不是 bundler、不做 build 快取、不是 task runner —— 那是 turbo / nx 的職責
+
+2. **L1 — 三層架構（公理層）**：懂了這層，L2 之後全是推論。展開見[三層架構](/docs/pnpm/architecture)。
+   1. **第一層／全域 store**：一份內容在整台機器只存一次，跨專案共用
+   2. **第二層／virtual store** `node_modules/.pnpm/`：**扁平**的一層 `pkg@version` 目錄；套件之間的依賴關係由各目錄內的 symlink 表達，不是由巢狀表達
+   3. **第三層／專案 `node_modules/`**：只放你宣告過的套件，內容是指向第二層的 symlink
+   4. **pnpm 預設仍然 hoist**（`hoistPattern: ['*']`），只是目的地是 `node_modules/.pnpm/node_modules` —— 它保護你的程式碼，不保證整棵依賴樹嚴格
+
+3. **L2 — 從架構推出的行為**：分診邏輯，見[故障診斷](/docs/pnpm/diagnosis)。
+   1. 「用了沒宣告的套件」與「peer 沒對上」是**兩個獨立故障**，症狀都是 `Cannot find module`，修法完全相反
+   2. peer 沒對上 → 對齊版本或 `autoInstallPeers`，不是補宣告
+   3. 依賴的 build script 預設不執行；`pnpm approve-builds` 把決定寫進 `pnpm-workspace.yaml` 的 `allowBuilds`
+   4. 兩個 hoist 開洞是不同東西：`hoistPattern` 調整既有的隱藏 hoist 層，`publicHoistPattern`（預設 `[]`）才是把套件暴露到專案根目錄
+   5. symlink 不是所有工具都吃：Docker `COPY`、部分 bundler、Windows 各有對策
+
+4. **L3 — 可重現性與版本治理**：跨機器一致，見[故障診斷](/docs/pnpm/diagnosis)後半。
+   1. `packageManager` 是必填不是選填，而且不只是宣告 —— 版本不符時 pnpm 會**自己下載**宣告的版本（v10 的 `managePackageManagerVersions` 預設 true；v11 改名 `pmOnFail`，預設 `download`）
+   2. 本機與 CI／Cloudflare Pages／Vercel 版本不一致會產生不同的解析結果；釘死 `packageManager` 是唯一根治手段
+   3. CI 環境下 `--frozen-lockfile` **本來就是預設**（非 CI `false`／CI 且有 lockfile 時 `true`）；真正的紅燈是「有人為了讓 CI 過而加了 `--no-frozen-lockfile`」
+   4. 設定的家是 `pnpm-workspace.yaml`；`.npmrc` **保留** registry 與認證 —— 把 `authToken` 一起搬走，私有 registry 會壞掉
+   5. 改別人的套件依代價排序：`overrides`（換版本）→ `packageExtensions`（補宣告）→ `patchedDependencies`（改原始碼）
+
+5. **L4 — Monorepo 實踐**：展開見[Monorepo](/docs/pnpm/monorepo)。
+   1. pnpm 管套件、turbo/nx 管任務編排，職責不重疊 —— 先分清楚才不會拿 pnpm 去解快取問題
+   2. 內部 package 用 `workspace:`，外部依賴用 `catalog:` —— 兩個協定管不同的東西，都會在發布時被換掉
+   3. 不寫 `workspace:` 前綴**不會**連到本地 package（`linkWorkspacePackages` 自 pnpm 9 起預設 `false`）；`workspace:*` 發布後鎖死版號、`workspace:^` 才留得住更新空間
+   4. catalog 是跨 package 的版本單一來源；`catalog:` 取預設目錄，`catalog:<名稱>` 取具名目錄；`publish` / `pack` 時會被換成真實版號
+   5. 具名 `catalogs` 的用途是**切 runtime 邊界**，不是分類美化
+   6. 八個 filter 選擇器裡最容易寫錯的是 `pkg^...`（只要依賴、不含自己）與 `...^pkg`（只要依賴者、不含自己）
+   7. `pnpm deploy` 是 monorepo 出 image 的正解，但預設需要 `inject-workspace-packages: true` 才會動
+
+6. **L5 — 維運、供應鏈與演進**：展開見[維運與供應鏈](/docs/pnpm/operations)。
+   1. store **只增不減**；`pnpm store prune` 是安全的但不要排進每日排程 —— 切回舊分支會讓被刪的東西重新變成需要的
+   2. CI 要 cache 的是 **store**，不是 `node_modules` —— cache 後者等於把三層架構壓回一層，還可能讓 symlink 在還原時被展開
+   3. Docker 裡 symlink 是**相對路徑**：整包 COPY（含 `.pnpm/`）到相同路徑深度有效，只搬一部分才會壞 —— 這就是 monorepo 必須用 `pnpm deploy` 的原因
+   4. `minimumReleaseAge` 讓新版本先冷卻再安裝，**v10 預設 `0`、v11 預設 `1440`** —— v10 不手動加這一行就完全沒有保護
+   5. `trustPolicy: no-downgrade`（v10.21+）拒絕供應鏈信任證據變弱的版本，代價是完整 metadata 帶來的解析變慢
+   6. 供應鏈有三道獨立防線：**能不能被解析進來**（`minimumReleaseAge` / `trustPolicy`）、**能不能執行程式碼**（`allowBuilds`）、**下次是不是同一份**（lockfile）—— 缺一不可
+   7. v10 → v11 的重點是**設定的讀取方式**：`package.json#pnpm` 被移除，一切收進 `pnpm-workspace.yaml`，官方提供 codemod
+   8. pacquet（Rust）已接手 fetching 與 linking，resolution 與 lockfile 仍由 TypeScript 負責 —— 它改變的是 `L0-1`「安裝慢」這個前提，不是 L1 的架構
+   9. 何時 pnpm 不是對的選擇：單一套件的小專案、且團隊已全面轉 Bun —— 架構優勢已被追平，只剩全域 store 與供應鏈設定
+
+## 怎麼用這份索引
+
+遇到問題時不要從頭讀。先判斷它屬於哪一層：
+
+- 讀不到套件、裝完少東西 → L2，去[故障診斷](/docs/pnpm/diagnosis)
+- 本機好、CI 壞 → L3，去[故障診斷](/docs/pnpm/diagnosis)後半
+- 版本對不齊、要跑部分 package → L4，去[Monorepo](/docs/pnpm/monorepo)
+- 磁碟被吃光、Docker image 壞掉、想擋供應鏈攻擊 → L5，去[維運與供應鏈](/docs/pnpm/operations)
+- 不知道為什麼會這樣 → 回 L1，去[三層架構](/docs/pnpm/architecture)
+
+要動手改設定時，直接翻[控制變因模板](/docs/pnpm/templates)，那裡的每段 code 都可以貼上就跑。

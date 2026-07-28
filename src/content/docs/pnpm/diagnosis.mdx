@@ -1,0 +1,216 @@
+---
+title: 故障診斷
+description: 四類 Cannot find module、三種改別人套件的手段、以及本機好 CI 壞的根治法。
+order: 2
+sidebarLabel: 故障診斷
+---
+
+這一頁是[三層架構](/docs/pnpm/architecture)的推論。如果某個分支看不懂，回去補那一層，
+不要在這裡硬記。
+
+## 分診：`Cannot find module`
+
+同一句錯誤訊息對應四種完全不同的故障。修錯了不只沒用，還會把問題藏得更深
+（最典型的是「開 hoist 讓它過去」）。
+
+```text
+Cannot find module 'X'
+│
+├─ X 在你自己的 import 裡？
+│  │
+│  ├─ 是 ──▸ package.json 有宣告 X 嗎？
+│  │         ├─ 沒有 ──▸ ① 幻影依賴
+│  │         │           修法：pnpm add X
+│  │         │           不要：開 publicHoistPattern
+│  │         │
+│  │         └─ 有 ────▸ ② 安裝不完整 / build 沒跑
+│  │                     查：pnpm install 的輸出有沒有被忽略的 build script
+│  │                     修法：pnpm approve-builds
+│  │
+│  └─ 否（錯誤來自 node_modules 裡的某個套件）
+│     │
+│     ├─ X 是那個套件的 peerDependency？
+│     │  └─ 是 ──▸ ③ peer 沒對上
+│     │            查：pnpm why X
+│     │            修法：對齊版本，或 autoInstallPeers
+│     │
+│     └─ 否 ──▸ ④ 上游套件自己漏宣告
+│               修法：packageExtensions 幫它補
+│               逃生門：hoistPattern
+```
+
+三句話記住：
+
+- **①與③的症狀相同、修法相反** → ① 是你少宣告，③ 是版本對不上；先分清是誰的 import 出錯
+- **②最容易被誤判成①** → 宣告明明有卻找不到，先去看安裝時的 build script 警告，不要急著改 import
+- **④才是唯一該開 hoist 的情況** → 而且是上游的錯，`packageExtensions` 比 hoist 更精準
+
+### ① 幻影依賴
+
+你 import 了沒宣告的東西。在 npm / Yarn Classic 底下它會意外地跑起來，在 pnpm 底下不會。
+
+**這不是 bug，是設計。** 修法只有一個：
+
+```bash
+pnpm add X
+```
+
+不要用 `publicHoistPattern` 把它塞回根目錄。那等於把 pnpm 最主要的價值關掉，
+換一個「暫時不用改 import」的短期利益。
+
+### ② build script 預設不執行
+
+pnpm 不會自動執行依賴的 `preinstall` / `install` / `postinstall`。
+症狀是「裝完了，但少了 binary」——`sharp`、`esbuild`、`playwright` 這類需要
+下載或編譯原生檔案的套件最常見。
+
+處理方式是**宣告式**的：
+
+```bash
+pnpm approve-builds          # 互動選單
+pnpm approve-builds esbuild sharp '!core-js'   # 直接指定，! 表示拒絕
+```
+
+它會把決定寫進 `pnpm-workspace.yaml`：
+
+```yaml
+allowBuilds:
+  esbuild: true
+  sharp: true
+```
+
+**最常遇到它的時機是專案初始化。** `pnpm create next-app` 之後第一次 `pnpm install`，
+幾乎一定會看到 `sharp`、`esbuild` 被列進待審核清單：
+
+```text
+╭ Warning ───────────────────────────────────────────╮
+│   Ignored build scripts: esbuild, sharp.           │
+│   Run "pnpm approve-builds" to pick which...       │
+╰────────────────────────────────────────────────────╯
+```
+
+這**不是錯誤，也不是設定壞了**，是 pnpm 在問你要不要讓這兩個套件在你的機器上執行程式碼。
+兩個都該批准，因為它們的功能就在 build script 裡：`sharp` 要下載對應平台的原生
+影像處理 binary，`esbuild` 要下載自己的執行檔。跳過的話，`next build` 會在用到
+圖片最佳化時才炸，而那時錯誤訊息已經離現場很遠了。
+
+同一個提示在 Astro、Nuxt、Vite 專案都會出現，套件名略有不同（`sharp`、`esbuild`、
+`@parcel/watcher`、`workerd`）。判準一致：**這個套件的核心功能是否依賴原生檔案？**
+是就批准，否則先查它為什麼要跑 script。
+
+被列成 `false` 的套件表示「我看過了，不需要跑」，這比留空更有價值：
+它記錄了一次已完成的審核。常見的 `false` 是 `core-js`——它的 postinstall 只是印贊助訊息。
+
+> v11 差異：`allowBuilds` 在 v11 成為唯一入口，`onlyBuiltDependencies` 等舊設定被收斂進去。
+> `pnpm approve-builds` 自 v10.1.0 起就寫入 `allowBuilds`，所以這個流程在兩個版本都適用。
+
+### ③ peer 沒對上
+
+錯誤來自某個套件內部，而它找的東西是自己的 `peerDependencies`。
+
+診斷入口只有一個：
+
+```bash
+pnpm why X
+```
+
+它回答「誰把這個版本拉進來的」。看到同一個套件出現多個版本，就對上了
+[三層架構](/docs/pnpm/architecture)裡那條「peer 集合寫在目錄名裡」——
+`.pnpm` 底下會有多個 `X@版本_peer集合` 目錄。
+
+修法依序嘗試：對齊你自己宣告的版本 → `overrides` 強制收斂 → `autoInstallPeers`
+（v8 起預設開啟，可在 `pnpm-lock.yaml` 的 `settings` 區塊確認目前的值）。
+
+### ④ 上游套件漏宣告
+
+上游自己 import 了沒寫進 `package.json` 的東西。這是**別人的 bug**，
+但你得先讓它跑起來。
+
+```yaml
+packageExtensions:
+  fork-ts-checker-webpack-plugin:
+    dependencies:
+      "@babel/core": "1"
+```
+
+比開 hoist 精準得多——只補這一個套件的這一個依賴，其餘依賴樹的嚴格性不受影響。
+
+真的沒辦法時才用逃生門，而且**要開的是 `publicHoistPattern`，不是 `hoistPattern`**——
+後者預設已經全開（`['*']`），動它只會縮小範圍，對「讀不到套件」毫無幫助。
+兩者的預設值、目的地與完整換法見[模板](/docs/pnpm/templates)的 T5。
+
+## 決策：要改別人的套件
+
+三種手段的代價差很多，由低到高：
+
+```text
+需要改動一個第三方套件
+│
+├─ 只是版本不對 / 想強制收斂
+│  └─▸ overrides            成本最低，寫在 pnpm-workspace.yaml，不動任何檔案內容
+│
+├─ 它的 manifest 漏了宣告（依賴、peer、optional）
+│  └─▸ packageExtensions    只補 manifest，不動原始碼
+│
+└─ 它的原始碼有 bug，而上游不修
+   └─▸ patchedDependencies  產生 .patch 檔進版控，每次升級都要重新對齊
+```
+
+- **先問「是版本問題還是程式碼問題」** → 版本問題永遠用 `overrides`，它不留維護債
+- **`patchedDependencies` 有持續成本** → 上游一改版 patch 就可能對不上，所以它是最後手段，不是方便工具
+
+## 本機好、CI 壞
+
+這一類與三層架構無關，屬於**可重現性**。三個原因，各有一個防呆。
+
+### 原因一：pnpm 版本不一致
+
+最常見，而且最容易被誤判成「平台的問題」。
+
+實例：本機 pnpm `10.34.5`、Cloudflare Pages 用 `10.11.1`。兩個版本的解析行為與
+lockfile 處理不同，於是本機能建、CF 上壞。
+
+根治只有一條——在 `package.json` 釘死：
+
+```json
+{
+  "packageManager": "pnpm@10.34.5"
+}
+```
+
+**這個欄位不只是宣告。** pnpm 讀到它之後，版本不符時會**自己下載**宣告的版本再執行，
+所以它同時是「宣告」與「自動修正」。上面那個 Cloudflare Pages 的落差，加上這一行就消失了。
+
+> v10 的開關是 `managePackageManagerVersions`（預設 `true`）。
+> v11 改名為 `pmOnFail`，預設 `download`，可選 `error` / `warn` / `ignore`。
+> 想讓不一致直接失敗而不是自動下載，就設 `error`。
+
+### 原因二：lockfile 在 CI 被改寫
+
+pnpm 偵測到 CI 環境時，`--frozen-lockfile` **本來就是預設**：
+
+> Default: 非 CI 為 `false`；CI 且有 lockfile 時為 `true`
+
+所以正常情況下你不需要加這個旗標。真正的紅燈是相反的動作——**有人為了讓 CI 通過而加了
+`--no-frozen-lockfile`**。那等於宣布「lockfile 不再是真相」，之後所有「本機好 CI 壞」
+都失去了診斷基礎。
+
+防呆：在 CI 腳本裡明確寫 `pnpm install --frozen-lockfile`。它是預設值，
+但寫出來能讓任何人試圖關掉它時在 code review 裡被看到。
+
+### 原因三：設定放錯位置
+
+`.npmrc` **沒有被廢棄**，是職責被切開了：
+
+| 檔案 | 放什麼 |
+|---|---|
+| `pnpm-workspace.yaml` | pnpm 專屬設定：`allowBuilds`、`overrides`、`catalog`、`hoistPattern`… |
+| `.npmrc` | registry 位址與**認證**（`//registry.npmjs.org/:_authToken=…`） |
+
+照「`.npmrc` 已廢棄」的理解把 `authToken` 一起搬進 `pnpm-workspace.yaml`，
+私有 registry 會直接壞掉——而且錯誤訊息是 404 或 401，看不出是設定放錯位置。
+
+> v11 差異：v11 移除了 `package.json` 裡的 `pnpm` 欄位，設定一律讀 `pnpm-workspace.yaml`，
+> 官方提供 codemod 自動搬遷。v10.34.5 已支援寫在 `pnpm-workspace.yaml`，只是還沒強制——
+> 現在就全部寫進 `pnpm-workspace.yaml`，升到 v11 時什麼都不用改。
+

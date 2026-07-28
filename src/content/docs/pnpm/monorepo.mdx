@@ -1,0 +1,224 @@
+---
+title: Monorepo
+description: catalog 的三個成熟階段、八個 filter 選擇器、以及 deploy 的前置條件。
+order: 3
+sidebarLabel: Monorepo
+---
+
+先劃清職責，否則後面每個決定都會錯位：
+
+- **pnpm 管套件** —— 誰依賴誰、裝哪個版本、裝到哪裡
+- **turbo / nx 管任務編排** —— 誰先建、什麼可以跳過、快取放哪
+
+pnpm **不做 build 快取**。「monorepo 建置太慢」不是 pnpm 能解的問題，
+把它拿來當理由去調 pnpm 設定，只會浪費時間。
+
+接下來兩節解決的是**兩個不同的版本問題**，先分清楚再往下讀：
+
+- **`workspace:` 協定** —— 內部 package 之間怎麼互相引用
+- **catalog** —— 外部依賴在各 package 之間怎麼保持同版
+
+## `workspace:`：內部 package 的引用方式
+
+`apps/web` 要用 `packages/ui`。直覺寫法是照一般依賴寫：
+
+```json
+{ "dependencies": { "@acme/ui": "^1.0.0" } }
+```
+
+**這樣不會連到你本地的 `packages/ui`。** pnpm 會去 registry 找一個叫 `@acme/ui`
+的套件——找不到就安裝失敗，找得到（同名的別人的套件）更糟。
+
+正確寫法是加上協定前綴：
+
+```json
+{ "dependencies": { "@acme/ui": "workspace:^" } }
+```
+
+`workspace:` 的意思是「**只准連本地，找不到就直接失敗**」。它把「我要的是隔壁那個」
+變成明確宣告，而不是靠巧合。
+
+> **這是 pnpm 9 起的行為。** `linkWorkspacePackages` 的預設值在 pnpm 9 從 `true` 改成
+> `false`，v10、v11 維持 `false`。pnpm 8 以前不寫前綴也會自動連本地，所以**舊教學與舊
+> repo 的寫法在今天是壞的**——症狀是 CI 上出現「registry 裡沒有這個套件」。
+> 把 `linkWorkspacePackages: true` 加回去可以復原舊行為，但不要這麼做：
+> 隱式連結會讓「這個依賴到底來自本地還是 registry」變成要跑一次才知道的事。
+
+### 四種寫法差在「發布時變成什麼」
+
+開發期它們**行為完全相同**，都是連到本地那份。差別只在 `pnpm publish` / `pnpm pack`
+時被替換成什麼——假設 workspace 內的目標套件版本是 `1.5.0`：
+
+| 寫法 | 發布後變成 | 意思 |
+|---|---|---|
+| `workspace:*` | `1.5.0` | **鎖死**在當下版本 |
+| `workspace:~` | `~1.5.0` | 允許 patch 更新 |
+| `workspace:^` | `^1.5.0` | 允許 minor 更新 |
+| `workspace:^1.5.0` | `^1.5.0` | 明確範圍，原樣保留 |
+
+單獨的 `workspace:` 等同 `workspace:*`。
+
+判準只有一條：**這個 package 會不會發布到 npm？**
+
+- **會發布** → 用 `workspace:^`。寫 `*` 會讓下游被鎖死在你發布當天的那個版號，
+  之後你發 `1.5.1` 修 bug，下游拿不到。
+- **不發布**（`private: true` 的 app） → 用 `workspace:*`。反正不會被替換，
+  用最簡單的寫法，也順便表達「這永遠跟著 repo 內的版本走」。
+
+替換是**自動且不可見**的：你的 repo 裡永遠是 `workspace:`，npm 上永遠是普通 semver。
+下游用 npm 或 Yarn 的人不會知道你用了 workspace 協定——這點跟 catalog 一樣。
+
+### 與 catalog 的分工
+
+兩者可以並存，但管的東西不重疊：
+
+| | 管什麼 | 寫在哪 |
+|---|---|---|
+| `workspace:` | **內部** package 互相引用 | 各 package 的 `package.json` |
+| `catalog:` | **外部**依賴的版本統一 | `pnpm-workspace.yaml` 的 `catalog` |
+
+一句話：**內部用 `workspace:`，外部用 `catalog:`。** 兩個協定都會在發布時被換掉，
+所以都是「workspace 內部機制，不外洩」。
+
+## catalog：跨 package 的版本單一來源
+
+問題場景：十個 package 各自在 `package.json` 寫 `"react": "^18.3.1"`。
+升級時要改十個地方，漏一個就出現兩份 React。
+
+catalog 把版本抽到 workspace 根：
+
+```yaml
+# pnpm-workspace.yaml
+catalog:
+  react: ^18.2.0
+  react-dom: ^18.2.0
+```
+
+```json
+{
+  "dependencies": {
+    "react": "catalog:",
+    "react-dom": "catalog:"
+  }
+}
+```
+
+`catalog:` 取預設目錄，等同 `catalog:default`。
+
+需要多組版本並存時用**具名** catalog（注意 key 是複數 `catalogs`）：
+
+```yaml
+catalogs:
+  react17:
+    react: ^17.0.2
+    react-dom: ^17.0.2
+  react18:
+    react: ^18.2.0
+    react-dom: ^18.2.0
+```
+
+```json
+{
+  "dependencies": {
+    "react": "catalog:react18"
+  }
+}
+```
+
+**發布時協定會被移除。** `pnpm publish` / `pnpm pack` 會把 `catalog:react18`
+換成真實的版本範圍（例如 `^18.3.1`），所以下游用 npm 或 Yarn 的人不受影響——
+catalog 是你的 workspace 內部機制，不會洩漏出去。
+
+### 三個成熟階段
+
+以下引用的是三個 repo 的**結構事實**（有哪個 key、為什麼需要它），
+不是設定內容的抄錄。查證日期 **2026-07-28**，各自 commit 如下。
+
+| Repo | commit | catalog 形態 |
+|---|---|---|
+| `withastro/astro` | `e614b7bd8a` | **沒有** catalog |
+| `vuejs/core` | `b5f8518379` | `catalog`（單數，單一預設目錄） |
+| `nuxt/nuxt` | `b118e43544` | `catalogs`（複數，七個具名分組） |
+
+這三個剛好落在同一條演進線上：
+
+**階段一 —— 不用 catalog（Astro）。** Astro 的 `pnpm-workspace.yaml` 沒有 catalog，
+它把力氣花在別處：`overrides`、`peerDependencyRules`、`allowBuilds`、
+`minimumReleaseAge`、`trustPolicy`。這說明一件事：**catalog 不是 monorepo 的必要條件。**
+當各 package 的依賴重疊不多時，加了只是多一層間接。
+
+**階段二 —— 單一 catalog（Vue core）。** Vue 用單數 `catalog`，收的是被多個 package
+共用的編譯期依賴（Babel parser/types、magic-string、estree-walker、Vite 與 plugin-vue）。
+判準很清楚：**只有「多個 package 都要、而且必須同版」的東西才進 catalog。**
+
+**階段三 —— 具名分組（Nuxt）。** Nuxt 用複數 `catalogs`，分成
+`app-runtime`、`nitro-runtime`、`vue`、`vite`、`webpack`、`build`、`dev`。
+
+關鍵在於這些名字**不是分類美化，是 runtime 邊界**。`app-runtime` 與 `nitro-runtime`
+分開，因為瀏覽器端與伺服器端的依賴不該互相牽動；`vite` 與 `webpack` 分開，
+因為兩條建置管線可以獨立演進。
+
+> 主張：**具名 catalog 用來切 runtime 邊界。** 這條不會過期。
+> 上面那七個名字會變，比例會變，但「用邊界而非用字母排序來分組」這個判準不會。
+
+## filter：選哪些 package
+
+`--filter` 是「**選哪些**」，`-r` 是「**全部**」。兩者是不同軸，不要當成同一個開關。
+
+八個選擇器：
+
+| 寫法 | 選中的範圍 |
+|---|---|
+| `--filter pkg` | 就它 |
+| `--filter "@scope/*"` | 名稱樣式 |
+| `--filter pkg...` | 它**與它的依賴** |
+| `--filter "pkg^..."` | **只有它的依賴**，不含它自己 |
+| `--filter ...pkg` | 它**與依賴它的人** |
+| `--filter "...^pkg"` | **只有依賴它的人**，不含它自己 |
+| `--filter "./packages/**"` | 路徑樣式（也可寫 `{./packages/**}`） |
+| `--filter "[origin/main]"` | 自該 commit 以來有變動的 |
+
+可以並用多個 filter，命中**任一**即入選；前綴 `!` 表示排除。
+
+兩個帶 `^` 的變體最容易寫錯，而它們正是 CI 裡最有用的：
+
+```bash
+# 這次 commit 動到的 package，以及依賴它們的人 —— CI 測試的標準寫法
+pnpm --filter "...[origin/main]" test
+
+# 只重建「依賴我的人」，不重建我自己（我剛剛已經建好了）
+pnpm --filter "...^my-lib" build
+```
+
+### 執行順序
+
+```bash
+pnpm -r run build              # 依拓撲順序：被依賴者先建
+pnpm -r --parallel run dev     # 放棄順序，全部同時跑
+pnpm -r --stream run test      # 保留順序，但即時輸出而非緩衝
+```
+
+`pnpm -r run` **預設就是拓撲順序**。很多人以為 pnpm 慢，是因為沒意識到它在等依賴——
+而那個等待通常是正確的。只有在任務彼此獨立時（例如各自的 dev server）才該加 `--parallel`。
+
+## deploy：出 image 的正解
+
+Monorepo 要打 Docker image 時，直接 `COPY node_modules` 會壞——那一整包都是
+指向 `.pnpm` 的 symlink，離開原本的目錄結構就失效（這是[三層架構](/docs/pnpm/architecture)
+第三層的直接推論）。
+
+`pnpm deploy` 把單一 package 攤平成自帶依賴的獨立目錄：
+
+```bash
+pnpm --filter=my-app --prod deploy ./out
+```
+
+三個必須知道的點：
+
+1. **預設需要 `inject-workspace-packages: true`** 才會動。官方原話是
+   「the deploy command only works with workspaces that have the
+   `inject-workspace-packages` setting set to `true`」。沒設就會失敗，
+   而錯誤訊息不會告訴你缺的是這個。
+1. `--prod` / `-P` 排除 devDependencies，這通常是你要的。
+1. 複製哪些檔案由 `package.json` 的 `files` 欄位，或 `.npmignore` / `.gitignore` 決定——
+   所以「image 裡少了東西」通常是 `files` 沒寫全，不是 deploy 的問題。

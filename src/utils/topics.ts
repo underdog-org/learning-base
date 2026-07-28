@@ -44,6 +44,12 @@ export const TOPICS: Topic[] = [
     description: "Agent 的上下文管理與工作流設計。",
     order: 4,
   },
+  {
+    slug: "pnpm",
+    label: "pnpm",
+    description: "從三層架構推導出全部行為，了解Monorepo的維護與pnpm為何成為主流選擇。",
+    order: 5,
+  },
 ];
 
 const BY_SLUG = new Map(TOPICS.map((t) => [t.slug, t]));
